@@ -1,0 +1,12 @@
+[tool.pytest.ini_options]
+pythonpath = [
+  "src"
+]
+
+[project]
+name = "ghin"
+description = "A look into different handicap calculations"
+version = "0.0.1"
+
+[project.scripts]
+golf="ghin.run:main"

@@ -1,0 +1,74 @@
+{
+    "Jace Iverson": {
+        "best_8_handicap": 5.3,
+        "worst_8_handicap": 12.3,
+        "all_20_handicap": 8.8,
+        "drop_4_high_and_low_handicap": 9.0,
+        "handicap_std_dev": 3.7,
+        "differential_range": 15.2
+    },
+    "Shawn Iverson": {
+        "best_8_handicap": 8.9,
+        "worst_8_handicap": 14.7,
+        "all_20_handicap": 11.7,
+        "drop_4_high_and_low_handicap": 11.4,
+        "handicap_std_dev": 3.2,
+        "differential_range": 12.2
+    },
+    "Porter Iverson": {
+        "best_8_handicap": 8.7,
+        "worst_8_handicap": 19.7,
+        "all_20_handicap": 13.9,
+        "drop_4_high_and_low_handicap": 13.3,
+        "handicap_std_dev": 5.9,
+        "differential_range": 22.2
+    },
+    "Carston Iverson": {
+        "best_8_handicap": 6.2,
+        "worst_8_handicap": 16.8,
+        "all_20_handicap": 11.4,
+        "drop_4_high_and_low_handicap": 11.3,
+        "handicap_std_dev": 5.9,
+        "differential_range": 27.1
+    },
+    "Troy Iverson": {
+        "best_8_handicap": 7.7,
+        "worst_8_handicap": 13.4,
+        "all_20_handicap": 10.5,
+        "drop_4_high_and_low_handicap": 10.4,
+        "handicap_std_dev": 3.6,
+        "differential_range": 16.2
+    },
+    "Paden Rhees": {
+        "best_8_handicap": 5.0,
+        "worst_8_handicap": 10.9,
+        "all_20_handicap": 8.0,
+        "drop_4_high_and_low_handicap": 8.4,
+        "handicap_std_dev": 3.3,
+        "differential_range": 13.4
+    },
+    "Scott Millward": {
+        "best_8_handicap": 5.5,
+        "worst_8_handicap": 13.6,
+        "all_20_handicap": 9.7,
+        "drop_4_high_and_low_handicap": 10.2,
+        "handicap_std_dev": 4.5,
+        "differential_range": 18.0
+    },
+    "Andrew Millward": {
+        "best_8_handicap": 6.1,
+        "worst_8_handicap": 16.1,
+        "all_20_handicap": 11.0,
+        "drop_4_high_and_low_handicap": 10.7,
+        "handicap_std_dev": 5.1,
+        "differential_range": 18.7
+    },
+    "Tyler Dixon": {
+        "best_8_handicap": 11.4,
+        "worst_8_handicap": 17.7,
+        "all_20_handicap": 14.4,
+        "drop_4_high_and_low_handicap": 14.3,
+        "handicap_std_dev": 3.3,
+        "differential_range": 13.3
+    }
+}

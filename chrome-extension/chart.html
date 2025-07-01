@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="stylesheet" type="text/css" href="chart.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'">
+    <title>Alternative Handicap Scores</title>
+</head>
+<body>
+    <div class="chart-container">
+        <div class="chart-title">Alternative Handicap Scores</div>
+        <div class="chart-content">
+            <table class="key-table">
+                <tr>
+                    <th>Name</th>
+                    <th>Color Dot</th>
+                </tr>
+                <tr>
+                    <td>Best 8</td>
+                    <td><div class="dot-table green"></div></td>
+                </tr>
+                <tr>
+                    <td>Drop 4 High/Low</td>
+                    <td><div class="dot-table yellow"></div></td>
+                </tr>
+                <tr>
+                    <td>All 20</td>
+                    <td><div class="dot-table white"></div></td>
+                </tr>
+                <tr>
+                    <td>Worst 8</td>
+                    <td><div class="dot-table blue"></div></td>
+                </tr>
+            </table>
+            <table class="additional-table">
+                <tr>
+                    <th>Range</th>
+                    <th>Standard Deviation</th>
+                </tr>
+                <tr>
+                    <td><div class="range-value"></div></td>
+                    <td><div class="std-value"></div></td>
+                </tr>
+            </table>
+        </div>
+        <div class="chart-line">
+            <div class="dot-container">
+                <div class="dot green",id="best8"></div>
+                <div class="dot yellow",id="all20"></div>
+                <div class="dot white",id="drop8"></div>
+                <div class="dot blue",id="worst8"></div>
+            </div>
+        </div>
+    </div>
+    <script src="chart.js"></script>
+</body>
+</html>

@@ -1,0 +1,136 @@
+
+:root {
+    --dot-position-white: 0%;
+    --dot-position-yellow: 0%;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+
+.chart-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 80%;
+    margin: 0 auto;
+}
+
+.chart-title {
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    margin-top:20px;
+}
+
+.chart-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 50px;
+    margin-top:20px;
+}
+.dot.green {
+    background-color: green;
+    color: white;
+    left: 0%; 
+}
+
+.dot.yellow {
+    background-color: yellow;
+    color: black;
+    left: var(--dot-position-yellow); 
+}
+
+.dot.white {
+    background-color: white;
+    color: black;
+    left: var(--dot-position-white); 
+}
+
+.dot.blue {
+    background-color: navy;
+    color: white;
+    left: 100%; 
+}
+
+
+/* Add this CSS to your existing styles */
+.key-table {
+    float: left;
+    border-collapse: collapse;
+    margin-right:500px;
+}
+
+.key-table th, .key-table td {
+    border: 1px solid #000; /* Add border styling */
+    padding: 5px 10px;
+}
+
+
+/* Rest of your existing styles remain the same */
+
+/* Updated CSS */
+.chart-line {
+    position: relative;
+    width: 100%;
+    height: 10px;
+    background-color: lightgray;
+    margin-bottom: 20px;
+}
+
+
+.dot {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 40px;
+    font-weight: bold;
+    cursor: pointer;
+    position: absolute;
+    border: 2px solid lightgray; /* Add border styling */  
+    font-size:large; 
+}
+
+
+/* Rest of your existing styles remain the same */
+/* Updated CSS */
+.dot-table {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    position: center;
+    border: 2px solid lightgray; /* Add border styling */    
+}
+
+.dot-table.green {
+    background-color: green;
+    color: white;
+}
+
+.dot-table.yellow {
+    background-color: yellow;
+    color: black;
+}
+
+.dot-table.white {
+    background-color: white;
+    color: black;   
+}
+
+.dot-table.blue {
+    background-color: navy;
+    color: white;
+}
+
+.dot-container {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}

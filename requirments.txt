@@ -1,0 +1,10 @@
+requests
+rich 
+
+# dev
+black
+pytest
+pytest-mock
+pytest-cov
+flake8
+python-dotenv
