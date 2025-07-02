@@ -7,7 +7,7 @@ import requests
 from rich import print
 from rich.table import Table
 
-from .header import get_headers
+from ghin.header import get_headers
 
 
 class GHIN:
@@ -21,6 +21,18 @@ class GHIN:
         self.last_20: Optional[dict] = None
 
         self.ghin_number = self._process_ghin_number_input(ghin_number)
+        self.ghin_account_info = self._get_ghin_account_information()
+        self.ghin_start_date = (
+            dt.datetime.strptime(
+                self.ghin_account_info["golfers"][0]["created_at"],
+                "%Y-%m-%dT%H:%M:%S.%fZ",
+            )
+            .date()
+            .isoformat()
+        )
+        print(self.ghin_start_date)
+        self.low_handicap_date = self.ghin_account_info["golfers"][0]["low_hi_date"]
+        self.low_handicap = self.ghin_account_info["golfers"][0]["low_hi_display"]
         self.handicap = self._get_live_handicap()
 
         self.base_url = f"https://api2.ghin.com/api/v1/golfers/{self.ghin_number}/scores.json?source=GHINcom"
@@ -69,14 +81,41 @@ class GHIN:
         response = requests.get(url, params=params, headers=get_headers())
         if response.ok and "error" not in response.json():
             return response.json()
-        else:
+        elif "error" in response.json():
             raise ValueError(response.json()["error"])
+        elif "errors" in response.json():
+            raise ValueError(response.json()["errors"])
+        else:
+            raise ValueError(response.text)
+
+    def _get_ghin_account_information(self) -> str:
+        """get the date you created the ghin account"""
+        url = f"https://api2.ghin.com/api/v1/golfers/search.json?golfer_id={self.ghin_number}&page=1&per_page=100&source=GHINcom"
+        response = self._make_request(url, self.get_request_params())
+        return response
 
     def _get_live_handicap(self) -> float:
         """Return the current handicap for the GHIN number"""
         url = f"https://api2.ghin.com/api/v1/golfers/{self.ghin_number}/handicap_history.json?revCount=0&date_begin={dt.date.today().isoformat()}&date_end={dt.date.today().isoformat()}&source=GHINcom"
         response = self._make_request(url, self.get_request_params())
         return float(response["handicap_revisions"][0]["Display"])
+
+    def get_handicap_history(self) -> dict:
+        """Return the handicap history for the GHIN number"""
+        url = f"https://api2.ghin.com/api/v1/golfers/{self.ghin_number}/handicap_history.json?revCount=0&date_begin={self.ghin_start_date}&date_end={dt.date.today().isoformat()}&source=GHINcom"
+        response = self._make_request(url, self.get_request_params())
+        return response
+
+    def get_scores_history(self) -> dict:
+        """return the scores history for the GHIN number"""
+        url = f"https://api2.ghin.com/api/v1/scores.json?golfer_id={self.ghin_number}&offset=0&limit=108&source=GHINcom"
+        response = self._make_request(url, self.get_request_params())
+        return response
+
+    @staticmethod
+    def get_last_years_date() -> str:
+        """Return the date of the last year in isoformat"""
+        return (dt.date.today() - dt.timedelta(days=365 * 2)).isoformat()
 
     def get_last_20_scores(self) -> dict:
         """Return the last 20 scores for the GHIN number"""
@@ -112,6 +151,8 @@ class GHIN:
             "drop_4_high_and_low_handicap": round(sum(differential[4:-4]) / 12, 1),
             "handicap_std_dev": round(statistics.stdev(differential), 1),
             "differential_range": round(differential[-1] - differential[0], 1),
+            "low_handicap": self.low_handicap,
+            "low_handicap_date": self.low_handicap_date,
         }
 
     @staticmethod
@@ -127,6 +168,8 @@ class GHIN:
         table.add_column("Drop 4 High&Low", style="bold")
         table.add_column("Range", style="bold")
         table.add_column("Std Dev", style="bold")
+        table.add_column("Low Handicap", style="bold")
+        table.add_column("Low Handicap Date", style="bold")
 
         # sort the handicaps by actual value
         sorted_handicap_spreads = dict(
@@ -143,7 +186,20 @@ class GHIN:
                 f"[yellow]{str(handicap_spread['drop_4_high_and_low_handicap'])}",
                 str(handicap_spread["differential_range"]),
                 str(handicap_spread["handicap_std_dev"]),
+                f"[green]{str(handicap_spread['low_handicap'])}",
+                f"[green]{str(handicap_spread['low_handicap_date'])}",
             )
 
         # Print the table
         print(table)
+
+    def get_course_details(self, course_id: str) -> dict:
+        """Get the course details for a given course id"""
+        url = f"https://api2.ghin.com/api/v1/crsCourseMethods.asmx/GetCourseDetails.json?courseId={course_id}&include_altered_tees=false&source=GHINcom"
+        response = self._make_request(url, self.get_request_params())
+        return response
+
+    def get_course_handicaps(self, course_id: str) -> dict:
+        url = f"https://api2.ghin.com/api/v1/course_handicaps.json?course_id={course_id}&golfer_id={self.ghin_number}&played_at=2025-07-01&source=GHINcom"
+        response = self._make_request(url, self.get_request_params())
+        return response
