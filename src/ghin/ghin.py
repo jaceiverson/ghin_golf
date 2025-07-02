@@ -30,7 +30,6 @@ class GHIN:
             .date()
             .isoformat()
         )
-        print(self.ghin_start_date)
         self.low_handicap_date = self.ghin_account_info["golfers"][0]["low_hi_date"]
         self.low_handicap = self.ghin_account_info["golfers"][0]["low_hi_display"]
         self.handicap = self._get_live_handicap()
@@ -106,11 +105,31 @@ class GHIN:
         response = self._make_request(url, self.get_request_params())
         return response
 
-    def get_scores_history(self) -> dict:
+    def get_scores_history(self, num_of_scores_to_pull: int = 20) -> dict:
         """return the scores history for the GHIN number"""
-        url = f"https://api2.ghin.com/api/v1/scores.json?golfer_id={self.ghin_number}&offset=0&limit=108&source=GHINcom"
-        response = self._make_request(url, self.get_request_params())
-        return response
+        offset_value = 0
+        max_scores_per_page = min(num_of_scores_to_pull, 25)
+        responses = {"scores": []}
+        while len(responses["scores"]) < num_of_scores_to_pull:
+            url = (
+                "https://api2.ghin.com/api/v1/scores.json?"
+                f"golfer_id={self.ghin_number}"
+                f"&offset={offset_value}&limit={max_scores_per_page}"
+                "&source=GHINcom"
+            )
+            response = self._make_request(url)
+            responses["scores"].extend(response["scores"])
+            offset_value += max_scores_per_page
+        return responses
+
+    @staticmethod
+    def get_differential_distribution(differentials: list, handicap: float) -> float:
+        """
+        Return the differential distribution for the GHIN number
+        how many scoring differentials (low 8) are below, equal to, and above the handicap
+        """
+        above_handicap = sum(1 for x in differentials if x > handicap)
+        return above_handicap / 8
 
     @staticmethod
     def get_last_years_date() -> str:
@@ -139,18 +158,27 @@ class GHIN:
         if self.last_20 is None:
             self.get_last_20_scores()
         differential = [
-            x["differential"] for x in self.last_20["revision_scores"]["scores"]
+            x.get("scaled_up_differential") or x.get("differential")
+            for x in self.last_20["revision_scores"]["scores"]
         ]
+        # before sorting on differential, get the average of the most recent 8 rounds
+        most_recent_eight = round(sum(differential[:8]) / 8, 1)
+        # now we can sort the differential to get the other metrics
         differential.sort()
         worst_8_handicap = round(sum(differential[-8:]) / 8, 1)
-        all_20_handicap = round(sum(differential) / 20, 1)
+        all_20_handicap = round(sum(differential) / len(differential), 1)
+        extraordinary_round_score = self.get_differential_distribution(
+            differential[:8], self.handicap
+        )
         return {
             "best_8_handicap": self.handicap,
             "worst_8_handicap": worst_8_handicap,
+            "last_8_rounds": most_recent_eight,
             "all_20_handicap": all_20_handicap,
             "drop_4_high_and_low_handicap": round(sum(differential[4:-4]) / 12, 1),
             "handicap_std_dev": round(statistics.stdev(differential), 1),
             "differential_range": round(differential[-1] - differential[0], 1),
+            "extraordinary_round_score": extraordinary_round_score,
             "low_handicap": self.low_handicap,
             "low_handicap_date": self.low_handicap_date,
         }
@@ -163,11 +191,13 @@ class GHIN:
         table = Table(title="Alt Handicap Calculations")
         table.add_column("Golfer", style="bold")
         table.add_column("Best 8", style="bold")
-        table.add_column("All 20", style="bold")
         table.add_column("Worst 8", style="bold")
+        table.add_column("Last 8", style="bold")
+        table.add_column("All 20", style="bold")
         table.add_column("Drop 4 High&Low", style="bold")
         table.add_column("Range", style="bold")
         table.add_column("Std Dev", style="bold")
+        table.add_column("Extraordinary Round Score", style="bold")
         table.add_column("Low Handicap", style="bold")
         table.add_column("Low Handicap Date", style="bold")
 
@@ -181,11 +211,13 @@ class GHIN:
             table.add_row(
                 golfer,
                 f"[green]{str(handicap_spread['best_8_handicap'])}",
-                str(handicap_spread["all_20_handicap"]),
                 f"[red]{str(handicap_spread['worst_8_handicap'])}",
+                f"[yellow]{str(handicap_spread['last_8_rounds'])}",
+                f"[yellow]{str(handicap_spread['all_20_handicap'])}",
                 f"[yellow]{str(handicap_spread['drop_4_high_and_low_handicap'])}",
                 str(handicap_spread["differential_range"]),
                 str(handicap_spread["handicap_std_dev"]),
+                f"[{'red' if handicap_spread['extraordinary_round_score'] > 0.5 else 'green'}]{handicap_spread['extraordinary_round_score']:.4f}",
                 f"[green]{str(handicap_spread['low_handicap'])}",
                 f"[green]{str(handicap_spread['low_handicap_date'])}",
             )
