@@ -1,5 +1,9 @@
 requests
 rich 
+tqdm
+matplotlib
+pandas
+python-dotenv
 
 # dev
 black
@@ -7,4 +11,3 @@ pytest
 pytest-mock
 pytest-cov
 flake8
-python-dotenv
