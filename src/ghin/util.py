@@ -4,21 +4,13 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import tqdm
 from dotenv import load_dotenv
 from rich import print
 
 from ghin.ghin import GHIN
 
 load_dotenv()
-
-### Single golfer
-# jace
-g = GHIN(1104482)
-# paden
-# g = GHIN(1367387)
-
-# remuda
-course = 14062
 
 
 def get_low_handicap_value(string_value: str) -> float:
@@ -50,7 +42,7 @@ def plot_handicap_history(ghin_object: GHIN):
         for x in all_hist["handicap_revisions"]
         if float(x["Value"]) < 30
     ]
-    print(handicap_vals)
+    # print(handicap_vals)
 
     # Create the handicap plot
     plt.figure(figsize=(12, 6))
@@ -69,7 +61,7 @@ def plot_low_handicap_over_time(ghin_object: GHIN):
         }
         for x in all_hist["handicap_revisions"]
     ]
-    print(low_handicap_vals)
+    # print(low_handicap_vals)
     # Create the handicap plot
     plt.figure(figsize=(12, 6))
     pd.DataFrame(low_handicap_vals).plot(
@@ -94,7 +86,7 @@ def plot_scores_over_time(ghin_object: GHIN):
     ]
     # Create separate lines for different hole counts
     df_scores = pd.DataFrame(score_vals)
-    print(df_scores.shape)
+    # print(df_scores.shape)
     df_scores.sort_values(by="date", inplace=True)
 
     # Separate data for 9-hole and 18-hole scores
@@ -153,6 +145,7 @@ def plot_differentials_over_time(ghin_object: GHIN, score_limit: int = 20):
         .rolling(window=20)
         .apply(lambda x: get_lowest_differentials(x))
     )
+    df_scores["current_handicap"] = ghin_object.handicap
 
     # Separate data for 9-hole and 18-hole scores
     scores_9 = df_scores[df_scores["number_of_holes"] == 9]
@@ -183,6 +176,12 @@ def plot_differentials_over_time(ghin_object: GHIN, score_limit: int = 20):
         color="green",
         alpha=0.7,
     )
+    plt.plot(
+        df_scores["date"],
+        df_scores["current_handicap"],
+        label="Current Handicap",
+        color="purple",
+    )
 
     plt.xlabel("Date")
     plt.ylabel("Differential")
@@ -200,7 +199,9 @@ def table_of_golfers(file_path: str, anonymize: bool = False):
         golfers = json.load(f)
 
     handicap_spreads = {}
-    for golfer, ghin_num in golfers.items():
+    pbar = tqdm.tqdm(golfers.items(), desc="Processing golfers")
+    for golfer, ghin_num in pbar:
+        pbar.set_description(f"Processing {golfer}")
         try:
             g = GHIN(ghin_num)
         except Exception as e:
@@ -216,18 +217,12 @@ def table_of_golfers(file_path: str, anonymize: bool = False):
         }
     g.format_handicap_spread(handicap_spreads)
 
+    with open("outputs/output.json", "w") as f:
+        json.dump(handicap_spreads, f)
+
 
 def course_details(ghin_object: GHIN, course_id: str):
     course_details_data = ghin_object.get_course_details(course_id)
     course_handicaps_data = ghin_object.get_course_handicaps(course_id)
     print(course_details_data)
     print(course_handicaps_data)
-
-
-# plot_handicap_history(g)
-# plot_low_handicap_over_time(g)
-# plot_scores_over_time(g)
-# plot_differentials_over_time(g, 100)
-# get_differential_distribution(g)
-table_of_golfers("golfers.json")
-# course_details(g, course)
