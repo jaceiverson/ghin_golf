@@ -265,7 +265,7 @@ class GHIN:
         """formats the dictionary of handicap spread into a nice string
         and outputs it using rich print"""
         # Create a table
-        table = Table(title="Alt Handicap Calculations", caption_justify="center")
+        table = Table(title="Alternative Handicaps", caption_justify="center")
         table.add_column("Golfer", style="bold")
         table.add_column("Best 8", style="bold")
         table.add_column("Worst 8", style="bold")
@@ -276,7 +276,7 @@ class GHIN:
         table.add_column("Range", style="bold")
         table.add_column("Std Dev", style="bold")
 
-        next_table = Table(title="Different Handicap Metrics", caption_justify="center")
+        next_table = Table(title="Next Round Helpers", caption_justify="center")
         next_table.add_column("Golfer", style="bold")
         next_table.add_column("Carry%", style="bold")
         next_table.add_column("8th Scored", style="bold")
@@ -287,12 +287,15 @@ class GHIN:
         )
 
         next_table.add_column("Worst Potential Handicap", style="bold")
-        next_table.add_column("Low", style="bold")
-        next_table.add_column("Low Date", style="bold")
-        next_table.add_column("Total Scores", style="bold")
-        next_table.add_column("Highest Score", style="bold")
-        next_table.add_column("Lowest Score", style="bold")
-        next_table.add_column("Average Score", style="bold")
+
+        historical_table = Table(title="Historical Values", caption_justify="center")
+        historical_table.add_column("Golfer", style="bold")
+        historical_table.add_column("Low Handicap", style="bold")
+        historical_table.add_column("Low Date", style="bold")
+        historical_table.add_column("Total Scores", style="bold")
+        historical_table.add_column("Highest Score", style="bold")
+        historical_table.add_column("Lowest Score", style="bold")
+        historical_table.add_column("Average Score", style="bold")
 
         # sort the handicaps by actual value
         sorted_handicap_spreads = dict(
@@ -336,6 +339,9 @@ class GHIN:
                 f"[yellow]{handicap_spread['worst_scored_differential']}",
                 falloff_table,
                 f"[yellow]{str(handicap_spread['worst_potential_handicap'])}",
+            )
+            historical_table.add_row(
+                golfer,
                 f"[green]{str(handicap_spread['low_handicap'])}",
                 f"[green]{str(handicap_spread['low_handicap_date'])}",
                 f"[green]{str(handicap_spread['total_scores'])}",
@@ -344,6 +350,7 @@ class GHIN:
                 str(handicap_spread["average_score"]),
             )
 
-        # Print the table
+        # Print the tables
         print(table)
         print(next_table)
+        print(historical_table)

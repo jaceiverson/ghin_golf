@@ -18,9 +18,8 @@ if __name__ == "__main__":
     # alternative handicaps
     hs = g.get_handicap_spread()
     g.format_handicap_spread({"jace": hs})
-    # # graphs
+    # graphs
     plot_handicap_history(g)
     plot_low_handicap_over_time(g)
     plot_scores_over_time(g)
-    # plot_differentials_over_time(g, 100)
     plot_differentials_over_time(g, 20)
