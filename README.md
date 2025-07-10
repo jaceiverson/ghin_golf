@@ -64,3 +64,13 @@ When you run the [`graphs_and_tables.py`](examples/graphs_and_tables.py) file yo
 | **High Score**         | Highest posted total round score (18 holes only, not a differential) |
 | **Low Score**          | Lowest posted total round score (18 holes only, not a differential) |
 | **Average Score**      | Average posted total round score (18 holes only, not a differential) |
+### Table Screenshot
+<img width="753" height="681" alt="Image" src="https://github.com/user-attachments/assets/74761d5f-74d4-400b-b727-bc667fc90064" />
+
+## Charts
+#### Differentials Overtime, on number of holes played with active handicap
+<img width="1179" height="571" alt="Image" src="https://github.com/user-attachments/assets/5c11d747-d149-48f1-bea5-6dc2096439a8" />
+
+#### Low Handicap overtime
+<img width="1175" height="582" alt="Image" src="https://github.com/user-attachments/assets/0fbe1727-42e8-48b4-9577-0fd4e17e8a1d" />
+
