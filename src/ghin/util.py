@@ -13,13 +13,6 @@ from ghin.ghin import GHIN
 load_dotenv()
 
 
-def get_low_handicap_value(string_value: str) -> float:
-    try:
-        return float(string_value)
-    except ValueError:
-        return None
-
-
 def get_played_date(string_value: str) -> dt.datetime:
     try:
         return dt.datetime.strptime(string_value, "%Y-%m-%d")
@@ -57,7 +50,7 @@ def plot_low_handicap_over_time(ghin_object: GHIN):
     low_handicap_vals = [
         {
             "date": dt.datetime.strptime(x["RevDate"], "%Y-%m-%dT%H:%M:%S").date(),
-            "value": get_low_handicap_value(x["LowHIDisplay"]),
+            "value": GHIN.get_low_handicap_value(x["LowHIDisplay"]),
         }
         for x in all_hist["handicap_revisions"]
     ]

@@ -32,7 +32,9 @@ class GHIN:
             .isoformat()
         )
         self.low_handicap_date = self.ghin_account_info["golfers"][0]["low_hi_date"]
-        self.low_handicap = self.ghin_account_info["golfers"][0]["low_hi_display"]
+        self.low_handicap = self.get_low_handicap_value(
+            self.ghin_account_info["golfers"][0]["low_hi_display"]
+        )
         self.handicap = self._get_live_handicap()
         if self.low_handicap == "-":
             self.low_handicap = self.handicap
@@ -50,6 +52,13 @@ class GHIN:
         self.lowest_score = None
         self.average_score = None
         self.get_scores_history()
+
+    @staticmethod
+    def get_low_handicap_value(string_value: str) -> float:
+        try:
+            return float(string_value.replace("+", "-"))
+        except ValueError:
+            return None
 
     @staticmethod
     def _process_ghin_number_input(ghin_number: Union[int, str]) -> str:
@@ -111,7 +120,11 @@ class GHIN:
         """Return the current handicap for the GHIN number"""
         url = f"https://api2.ghin.com/api/v1/golfers/{self.ghin_number}/handicap_history.json?revCount=0&date_begin={dt.date.today().isoformat()}&date_end={dt.date.today().isoformat()}&source=GHINcom"
         response = self._make_request(url, self.get_request_params())
-        return float(response["handicap_revisions"][0]["Display"])
+        display_handicap = response["handicap_revisions"][0]["Display"]
+        if "+" in display_handicap:
+            # if the handicap is a plus, we need to convert it to a float
+            return float(display_handicap.replace("+", "-"))
+        return float(display_handicap)
 
     def get_handicap_history(self) -> dict:
         """Return the handicap history for the GHIN number"""

@@ -12,12 +12,12 @@ load_dotenv()
 
 if __name__ == "__main__":
     ### Single golfer
-    # jace
+    # # jace
     g = GHIN(1104482)
 
     # alternative handicaps
     hs = g.get_handicap_spread()
-    g.format_handicap_spread({"jace": hs})
+    g.format_handicap_spread({"golfer": hs})
     # graphs
     plot_handicap_history(g)
     plot_low_handicap_over_time(g)
