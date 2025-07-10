@@ -1,7 +1,8 @@
 from dotenv import load_dotenv
 
 from ghin.ghin import GHIN
-from ghin.util import (
+from ghin.tables import (
+    format_handicap_spread,
     plot_differentials_over_time,
     plot_handicap_history,
     plot_low_handicap_over_time,
@@ -17,9 +18,11 @@ if __name__ == "__main__":
 
     # alternative handicaps
     hs = g.get_handicap_spread()
-    g.format_handicap_spread({"golfer": hs})
+    format_handicap_spread({"jace": hs})
     # graphs
-    plot_handicap_history(g)
-    plot_low_handicap_over_time(g)
-    plot_scores_over_time(g)
-    plot_differentials_over_time(g, 20)
+    handicap_history = g.get_handicap_history()
+    score_history = g.get_scores_history()
+    plot_handicap_history(handicap_history)
+    plot_low_handicap_over_time(handicap_history)
+    plot_scores_over_time(score_history)
+    plot_differentials_over_time(score_history, g.handicap)

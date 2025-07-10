@@ -1,14 +1,16 @@
 import datetime as dt
+import json
 import os
 import statistics
 from typing import Optional, Union
 
 import requests
+import tqdm
 from rich import print
-from rich.align import Align
-from rich.table import Table
 
 from ghin.header import get_headers
+from ghin.tables import format_handicap_spread
+from ghin.util import get_differential_distribution, get_low_handicap_value
 
 
 class GHIN:
@@ -23,6 +25,10 @@ class GHIN:
 
         self.ghin_number = self._process_ghin_number_input(ghin_number)
         self.ghin_account_info = self._get_ghin_account_information()
+        self.display_name = (
+            f"{self.ghin_account_info['golfers'][0]['first_name']} "
+            f"{self.ghin_account_info['golfers'][0]['last_name']}"
+        )
         self.ghin_start_date = (
             dt.datetime.strptime(
                 self.ghin_account_info["golfers"][0]["created_at"],
@@ -32,7 +38,7 @@ class GHIN:
             .isoformat()
         )
         self.low_handicap_date = self.ghin_account_info["golfers"][0]["low_hi_date"]
-        self.low_handicap = self.get_low_handicap_value(
+        self.low_handicap = get_low_handicap_value(
             self.ghin_account_info["golfers"][0]["low_hi_display"]
         )
         self.handicap = self._get_live_handicap()
@@ -52,13 +58,6 @@ class GHIN:
         self.lowest_score = None
         self.average_score = None
         self.get_scores_history()
-
-    @staticmethod
-    def get_low_handicap_value(string_value: str) -> float:
-        try:
-            return float(string_value.replace("+", "-"))
-        except ValueError:
-            return None
 
     @staticmethod
     def _process_ghin_number_input(ghin_number: Union[int, str]) -> str:
@@ -126,6 +125,12 @@ class GHIN:
             return float(display_handicap.replace("+", "-"))
         return float(display_handicap)
 
+    def get_followed_golfers(self) -> list:
+        """return list from the golfers you follow"""
+        url = f"https://api2.ghin.com/api/v1/followed_golfers/{self.ghin_number}.json?source=GHINcom"
+        response = self._make_request(url)
+        return response.get("golfers", [])
+
     def get_handicap_history(self) -> dict:
         """Return the handicap history for the GHIN number"""
         url = f"https://api2.ghin.com/api/v1/golfers/{self.ghin_number}/handicap_history.json?revCount=0&date_begin={self.ghin_start_date}&date_end={dt.date.today().isoformat()}&source=GHINcom"
@@ -157,31 +162,24 @@ class GHIN:
         self.last_20_scored_rounds = responses
         return responses
 
-    @staticmethod
-    def get_differential_distribution(differentials: list, handicap: float) -> float:
+    def compare_friends(self, save: bool) -> None:
         """
-        Return the differential distribution for the GHIN number
-        how many scoring differentials (low 8) are above the handicap
+        Method to compare you and your friend's handicaps in tables
         """
-        above_handicap = sum(1 for x in differentials if x > handicap)
-        return above_handicap / 8
-
-    @staticmethod
-    def will_next_score_affect_handicap(
-        falling_off_round: float, differential: list
-    ) -> bool:
-        """
-        calculate if your next scored round will affect your handicap
-        if your next round to fall off (20 scores ago) is one of your scoring
-        rounds, then it will affect your handicap, we can check this by using
-        the sorted list of differentials and checking if the falling off round
-        is one of the first 8 rounds. We do need to check to make sure we don't have
-        repeats for the 9th best round.
-        """
-        if falling_off_round <= differential[7] and differential[7] < differential[8]:
-            return True
-        else:
-            return False
+        friend_data = self.get_followed_golfers()
+        if not friend_data:
+            print("[red]No followed golfers found.[/red]")
+            return
+        my_spread = self.get_handicap_spread()
+        spread_data = {
+            self.display_name: my_spread,
+        }
+        friend_spreads = self.group_handicap_spreads(friend_data)
+        spread_data.update(friend_spreads)
+        format_handicap_spread(spread_data)
+        if save:
+            with open("outputs/friend_handicap_spreads.json", "w") as f:
+                json.dump(spread_data, f, indent=4)
 
     @staticmethod
     def next_four_rounds_to_fall_off(
@@ -198,11 +196,6 @@ class GHIN:
             else f"[red]{float(x):.1f}[/red]"
             for x in differential
         ]
-
-    @staticmethod
-    def get_last_years_date() -> str:
-        """Return the date of the last year in isoformat"""
-        return (dt.date.today() - dt.timedelta(days=365 * 2)).isoformat()
 
     def get_last_20_scores(self) -> dict:
         """Return the last 20 scores for the GHIN number"""
@@ -240,7 +233,7 @@ class GHIN:
         all_20_handicap = round(sum(differential) / len(differential), 1)
         drop_4_high_and_low_handicap = round(sum(differential[4:-4]) / 12, 1)
         # alternative metrics
-        extraordinary_round_score = self.get_differential_distribution(
+        extraordinary_round_score = get_differential_distribution(
             differential[:8], self.handicap
         )
         next_four_rounds_to_fall_off = self.next_four_rounds_to_fall_off(
@@ -273,97 +266,50 @@ class GHIN:
             "average_score": self.average_score,
         }
 
-    @staticmethod
-    def format_handicap_spread(handicap_spreads: dict) -> str:
-        """formats the dictionary of handicap spread into a nice string
-        and outputs it using rich print"""
-        # Create a table
-        table = Table(title="Alternative Handicaps", caption_justify="center")
-        table.add_column("Golfer", style="bold")
-        table.add_column("Best 8", style="bold")
-        table.add_column("Worst 8", style="bold")
-        table.add_column("Last 8", style="bold")
-        table.add_column("Last 4", style="bold")
-        table.add_column("All 20", style="bold")
-        table.add_column("Drop 4HL", style="bold")
-        table.add_column("Range", style="bold")
-        table.add_column("Std Dev", style="bold")
-
-        next_table = Table(title="Next Round Helpers", caption_justify="center")
-        next_table.add_column("Golfer", style="bold")
-        next_table.add_column("Carry%", style="bold")
-        next_table.add_column("8th Scored", style="bold")
-        next_table.add_column(
-            "Score Fall Off",
-            style="bold",
-            justify="center",
-        )
-
-        next_table.add_column("Worst Potential Handicap", style="bold")
-
-        historical_table = Table(title="Historical Values", caption_justify="center")
-        historical_table.add_column("Golfer", style="bold")
-        historical_table.add_column("Low Handicap", style="bold")
-        historical_table.add_column("Low Date", style="bold")
-        historical_table.add_column("Total Scores", style="bold")
-        historical_table.add_column("Highest Score", style="bold")
-        historical_table.add_column("Lowest Score", style="bold")
-        historical_table.add_column("Average Score", style="bold")
-
-        # sort the handicaps by actual value
-        sorted_handicap_spreads = dict(
-            sorted(
-                handicap_spreads.items(), key=lambda item: item[1]["best_8_handicap"]
-            )
-        )
-        for golfer, handicap_spread in sorted_handicap_spreads.items():
-            table.add_row(
-                golfer,
-                f"[green]{str(handicap_spread['best_8_handicap'])}",
-                f"[red]{str(handicap_spread['worst_8_handicap'])}",
-                f"[yellow]{str(handicap_spread['last_8_rounds'])}",
-                f"[yellow]{str(handicap_spread['last_4_rounds'])}",
-                f"[yellow]{str(handicap_spread['all_20_handicap'])}",
-                f"[yellow]{str(handicap_spread['drop_4_high_and_low_handicap'])}",
-                str(handicap_spread["differential_range"]),
-                str(handicap_spread["handicap_std_dev"]),
-            )
-            falloff_table = Table(
-                padding=(0, 0, 0, 0),
-                show_edge=False,
-                show_lines=True,
-                width=30,
-                show_header=False,
-            )
-            for i in range(4):
-                falloff_table.add_column(
-                    f"{i + 1}", style="bold", width=10, justify="center"
+    def group_handicap_spreads(self, list_of_golfers: list) -> dict:
+        """Return a dictionary of handicap spreads for a list of golfers"""
+        handicap_spreads = {}
+        pbar = tqdm.tqdm(list_of_golfers, desc="Processing golfers")
+        for golfer in pbar:
+            display_name = f"{golfer['first_name']} {golfer['last_name']}"
+            pbar.set_description(f"Processing {display_name}")
+            try:
+                g = GHIN(golfer["id"])
+            except Exception as e:
+                print(
+                    f"[red]ERROR[/red] getting handicap spread for {golfer['id']}: {e}"
                 )
-            falloff_table.add_row(
-                f"{handicap_spread['next_4_rounds_to_fall_off'][0]}",
-                f"{handicap_spread['next_4_rounds_to_fall_off'][1]}",
-                f"{handicap_spread['next_4_rounds_to_fall_off'][2]}",
-                f"{handicap_spread['next_4_rounds_to_fall_off'][3]}",
-            )
-            falloff_table = Align.left(falloff_table, pad=True)
-            next_table.add_row(
-                golfer,
-                f"[{'red' if handicap_spread['carry_percentage'] > 0.5 else 'green'}]{handicap_spread['carry_percentage'] * 100:.1f}%",
-                f"[yellow]{handicap_spread['worst_scored_differential']}",
-                falloff_table,
-                f"[yellow]{str(handicap_spread['worst_potential_handicap'])}",
-            )
-            historical_table.add_row(
-                golfer,
-                f"[green]{str(handicap_spread['low_handicap'])}",
-                f"[green]{str(handicap_spread['low_handicap_date'])}",
-                f"[green]{str(handicap_spread['total_scores'])}",
-                str(handicap_spread["highest_score"]),
-                str(handicap_spread["lowest_score"]),
-                str(handicap_spread["average_score"]),
-            )
+                continue
+            hs = g.get_handicap_spread()
+            handicap_spreads[display_name] = hs
+        return handicap_spreads
 
-        # Print the tables
-        print(table)
-        print(next_table)
-        print(historical_table)
+    @staticmethod
+    def table_of_golfers(file_path: str, anonymize: bool = False):
+        """
+        Table of golfers and their handicap spreads
+        """
+        with open(file_path, "r") as f:
+            golfers = json.load(f)
+
+        handicap_spreads = {}
+        pbar = tqdm.tqdm(golfers.items(), desc="Processing golfers")
+        for golfer, ghin_num in pbar:
+            pbar.set_description(f"Processing {golfer}")
+            try:
+                g = GHIN(ghin_num)
+            except Exception as e:
+                print(f"[red]ERROR[/red] getting handicap spread for {golfer}: {e}")
+                continue
+            hs = g.get_handicap_spread()
+            handicap_spreads[golfer] = hs
+            # print(f"{golfer}:{g.ghin_number}: {g.handicap} {hs}")
+
+        if anonymize:
+            handicap_spreads = {
+                f"golfer_{i}": hs for i, hs in enumerate(handicap_spreads.values())
+            }
+        format_handicap_spread(handicap_spreads)
+
+        with open("outputs/output.json", "w") as f:
+            json.dump(handicap_spreads, f)

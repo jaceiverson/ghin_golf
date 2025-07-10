@@ -2,7 +2,7 @@ import json
 
 from rich import print
 
-from ghin.ghin import GHIN
+from ghin.tables import format_handicap_spread
 
 if __name__ == "__main__":
     # need to run the graphs_and_tables.py first to get this file
@@ -10,4 +10,4 @@ if __name__ == "__main__":
         data = json.load(f)
 
     # print(data)
-    GHIN.format_handicap_spread(data)
+    format_handicap_spread(data)

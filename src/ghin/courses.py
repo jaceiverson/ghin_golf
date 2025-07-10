@@ -124,9 +124,8 @@ class Course(GHIN):
 
         return response
 
-    def format_course_handicaps_table(
-        self, course_handicaps: dict, ghin_number: str
-    ) -> dict:
+    @staticmethod
+    def format_course_handicaps_table(course_handicaps: dict, ghin_number: str) -> dict:
         """Format the course handicaps into a dictionary"""
         handicap_table = Table(title=f"Course Handicaps for {ghin_number}")
         handicap_table.add_column("Tee", style="bold")
