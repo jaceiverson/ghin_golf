@@ -6,3 +6,5 @@ __pycache__/
 build
 .ruff_cache
 token.key
+chromedriver
+last_pulled_time.txt

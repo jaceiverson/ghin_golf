@@ -9,6 +9,7 @@ import tqdm
 from rich import print
 
 from ghin.header import get_headers
+from ghin.login import process_to_get_ghin_cookie
 from ghin.tables import format_handicap_spread
 from ghin.util import get_differential_distribution, get_low_handicap_value
 
@@ -22,6 +23,7 @@ class GHIN:
         self.from_date_played: Optional[str] = None
         self.to_date_played: Optional[str] = None
         self.last_20: Optional[dict] = None
+        self.ghin_auth_token: Optional[str] = None
 
         self.ghin_number = self._process_ghin_number_input(ghin_number)
         self.ghin_account_info = self._get_ghin_account_information()
@@ -95,11 +97,24 @@ class GHIN:
             "statuses": "Validated",
         }
 
-    def _make_request(self, url: str, params: Optional[dict] = None) -> dict:
+    def _make_request(
+        self,
+        url: str,
+        params: Optional[dict] = None,
+        pull_new_cookie: bool = True,
+    ) -> dict:
         """Make a request to the GHIN API and return the response as a dict"""
         if params is None:
             params = {}
-        response = requests.get(url, params=params, headers=get_headers())
+        if pull_new_cookie or self.ghin_auth_token is None:
+            auth_token = process_to_get_ghin_cookie()
+            if auth_token:
+                self.ghin_auth_token = auth_token
+        else:
+            auth_token = None
+        response = requests.get(
+            url, params=params, headers=get_headers(self.ghin_auth_token)
+        )
         if response.ok and "error" not in response.json():
             return response.json()
         elif "error" in response.json():
