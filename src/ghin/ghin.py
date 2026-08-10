@@ -18,19 +18,30 @@ class GHIN:
     """Class for interacting with the GHIN API"""
 
     def __init__(
-        self, ghin_number: Union[int, str] = None, save_outputs: bool = False
+        self,
+        ghin_number: Union[int, str] = None,
+        save_outputs: bool = False,
+        data_dir: Optional[str] = None,
     ) -> None:
-        """Initialize the GHIN class"""
+        """Initialize the GHIN class
+
+        If data_dir is provided, account info, live handicap, and scores are
+        loaded from account_info.json, live_handicap.json, and scores.json in
+        that directory (as written when save_outputs=True) instead of calling
+        the GHIN API.
+        """
         self.score_limit: int = 25
         self.from_date_played: Optional[str] = None
         self.to_date_played: Optional[str] = None
         self.last_20: Optional[dict] = None
         self.ghin_auth_token: Optional[str] = None
         self.preserve_outputs = save_outputs
-        # create the directory if we need it for GHIN
-        os.makedirs(f"outputs/{ghin_number}/", exist_ok=True)
+        self.data_dir = data_dir
 
+        # validate ghin number formatting
         self.ghin_number = self._process_ghin_number_input(ghin_number)
+        if self.preserve_outputs:
+            os.makedirs(f"outputs/{self.ghin_number}/", exist_ok=True)
         self.ghin_account_info = self._get_ghin_account_information()
         self.display_name = (
             f"{self.ghin_account_info['golfers'][0]['first_name']} "
@@ -131,6 +142,9 @@ class GHIN:
 
     def _get_ghin_account_information(self) -> str:
         """get the date you created the ghin account"""
+        if self.data_dir:
+            with open(os.path.join(self.data_dir, "account_info.json"), "r") as f:
+                return json.load(f)
         url = f"https://api2.ghin.com/api/v1/golfers/search.json?golfer_id={self.ghin_number}&page=1&per_page=100&source=GHINcom"
         response = self._make_request(url, self.get_request_params())
         if self.preserve_outputs:
@@ -140,11 +154,15 @@ class GHIN:
 
     def _get_live_handicap(self) -> float:
         """Return the current handicap for the GHIN number"""
-        url = f"https://api2.ghin.com/api/v1/golfers/{self.ghin_number}/handicap_history.json?revCount=0&date_begin={dt.date.today().isoformat()}&date_end={dt.date.today().isoformat()}&source=GHINcom"
-        response = self._make_request(url, self.get_request_params())
-        if self.preserve_outputs:
-            with open(f"outputs/{self.ghin_number}/live_handicap.json", "w") as f:
-                json.dump(response, f)
+        if self.data_dir:
+            with open(os.path.join(self.data_dir, "live_handicap.json"), "r") as f:
+                response = json.load(f)
+        else:
+            url = f"https://api2.ghin.com/api/v1/golfers/{self.ghin_number}/handicap_history.json?revCount=0&date_begin={dt.date.today().isoformat()}&date_end={dt.date.today().isoformat()}&source=GHINcom"
+            response = self._make_request(url, self.get_request_params())
+            if self.preserve_outputs:
+                with open(f"outputs/{self.ghin_number}/live_handicap.json", "w") as f:
+                    json.dump(response, f)
         display_handicap = response["handicap_revisions"][0]["Display"]
         if "+" in display_handicap:
             # if the handicap is a plus, we need to convert it to a float
@@ -174,6 +192,20 @@ class GHIN:
         num_of_scores_to_pull: int = 20,
     ) -> dict:
         """return the scores history for the GHIN number"""
+        if self.data_dir:
+            with open(os.path.join(self.data_dir, "scores.json"), "r") as f:
+                responses = json.load(f)
+            scores = responses["scores"]
+            adjusted_gross_scores = [x["adjusted_gross_score"] for x in scores]
+            self.total_scores = len(scores)
+            self.highest_score = max(adjusted_gross_scores)
+            self.lowest_score = min(adjusted_gross_scores)
+            self.average_score = round(
+                sum(adjusted_gross_scores) / len(adjusted_gross_scores), 1
+            )
+            self.last_20_scored_rounds = responses
+            return responses
+
         offset_value = 0
         max_scores_per_page = min(num_of_scores_to_pull, 25)
         responses = {"scores": []}
@@ -232,14 +264,12 @@ class GHIN:
         differential: list, highest_scored_round: float
     ) -> list:
         """
-        return a list of emojis
-        green checkmarks if the round is a scoring one
-        red x if the round is a non-scoring one
+        return a list of dicts describing the next 4 rounds to fall off,
+        each with the rounded value and whether it is a scoring round
+        (still within the best 8) or a non-scoring one
         """
         return [
-            f"[green]{float(x):.1f}[/green]"
-            if x <= highest_scored_round
-            else f"[red]{float(x):.1f}[/red]"
+            {"value": round(float(x), 1), "is_scoring": x <= highest_scored_round}
             for x in differential
         ]
 
@@ -264,15 +294,48 @@ class GHIN:
         """Return the best 8, worst 8, and all 20 handicap values"""
         if self.last_20_scored_rounds is None:
             self.get_scores_history(save_outputs=save_outputs)
+        scores = self.last_20_scored_rounds["scores"]
+        base_differentials = []
+        scaled_differentials = []
+        adjusted_differentials = []
+        scaled_differences = []
+        number_of_holes = []
+        pcc = []
+        course_names = []
+        played_dates = []
+        tee_set_sides = []
+        for x in scores:
+            base = x.get("differential")
+            scaled = x.get("scaled_up_differential")
+            base_differentials.append(base)
+            scaled_differentials.append(scaled)
+            adjusted_differentials.append(x.get("adjusted_scaled_up_differential"))
+            # how much scaling a 9-hole round's differential up to an 18-hole
+            # equivalent added; None for rounds that aren't scaled (18-hole)
+            scaled_differences.append(
+                round(scaled - base, 1) if scaled is not None else None
+            )
+            number_of_holes.append(x.get("number_of_holes"))
+            pcc.append(x.get("pcc"))
+            course_names.append(x.get("ghin_course_name_display"))
+            played_dates.append(x.get("played_at"))
+            tee_set_sides.append(x.get("tee_set_side"))
+        # the differential actually used for handicap math prefers the
+        # PCC-adjusted, scaled value, falling back to the scaled or raw value
+        # when a round doesn't have one (e.g. 18-hole rounds aren't scaled)
         differential = [
-            x.get("scaled_up_differential") or x.get("differential")
-            for x in self.last_20_scored_rounds["scores"]
+            a or s or b
+            for a, s, b in zip(
+                adjusted_differentials, scaled_differentials, base_differentials
+            )
         ]
         # before sorting on differential, get the average of the most recent 8 rounds
         most_recent_eight = round(sum(differential[:8]) / 8, 1)
         most_recent_four = round(sum(differential[:4]) / 4, 1)
         # get the rounds that is "falling off"
         falling_off_rounds = differential[-4:][::-1]
+        # save the time sorted values so we can then sort it for handicap calculations
+        differential_time_ordered = differential.copy()
         # now we can sort the differential to get the other metrics
         differential.sort()
         worst_8_handicap = round(sum(differential[-8:]) / 8, 1)
@@ -287,13 +350,31 @@ class GHIN:
             falling_off_rounds, differential[7]
         )
         worst_potential_handicap = (
-            f"[yellow]{round(sum(differential[1:9]) / 8, 1)}[/yellow]"
+            round(sum(differential[1:9]) / 8, 1)
             if falling_off_rounds[0] <= differential[7]
-            else f"[green]{self.handicap}[/green]"
+            else self.handicap
         )
+        # differential needed on the next round to lower the handicap by a given
+        # amount: a new differential replaces the current 8th-best round, so
+        # solve for d in (sum(best_7) + d) / 8 == handicap - target_reduction
+        best_7_sum = sum(differential[:7])
+        differential_to_lower_by_point_five = round(
+            8 * (self.handicap - 0.5) - best_7_sum, 1
+        )
+        differential_to_lower_by_one = round(8 * (self.handicap - 1) - best_7_sum, 1)
 
         return {
             "ghin": self.ghin_number,
+            "last_20_differentials": differential_time_ordered,
+            "base_differentials": base_differentials,
+            "scaled_differentials": scaled_differentials,
+            "adjusted_differentials": adjusted_differentials,
+            "scaled_differences": scaled_differences,
+            "number_of_holes": number_of_holes,
+            "pcc": pcc,
+            "course_names": course_names,
+            "played_dates": played_dates,
+            "tee_set_sides": tee_set_sides,
             "best_8_handicap": self.handicap,
             "worst_8_handicap": worst_8_handicap,
             "last_8_rounds": most_recent_eight,
@@ -305,6 +386,8 @@ class GHIN:
             "carry_percentage": extraordinary_round_score,
             "worst_scored_differential": differential[7],
             "worst_potential_handicap": worst_potential_handicap,
+            "differential_to_lower_by_point_five": differential_to_lower_by_point_five,
+            "differential_to_lower_by_one": differential_to_lower_by_one,
             "next_4_rounds_to_fall_off": next_four_rounds_to_fall_off,
             "low_handicap": self.low_handicap,
             "low_handicap_date": self.low_handicap_date,
@@ -312,7 +395,6 @@ class GHIN:
             "highest_score": self.highest_score,
             "lowest_score": self.lowest_score,
             "average_score": self.average_score,
-            "scoring_differential_array": differential[:8],
             "consistency_score_best_8_all_20": f"{self.handicap / all_20_handicap * 100:.1f}%",
             "consistency_score_best_8_worst_12": f"{self.handicap / worst_12_handicap * 100:.1f}%",
         }

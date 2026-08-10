@@ -27,10 +27,19 @@ def get_lowest_differentials(data_series: pd.Series) -> pd.Series:
 def get_differential_distribution(differentials: list, handicap: float) -> float:
     """
     Return the differential distribution for the GHIN number
-    how many scoring differentials (low 8) are above the handicap
+    how many scoring differentials (low 8) are above the posted handicap
+
+    It isn't possible for all 8 differentials to be lower,
+    but it is possible for:
+    - 7 differentials to be higher (what I'd call 100% carry)
+    - 7 differentials to be lower (what I'd call 0% carry)
+
+    We need a little bit of custom logic to account for this as implemented below
     """
     above_handicap = sum(1 for x in differentials if x > handicap)
-    return above_handicap / 8
+    if above_handicap == 1:
+        return 0
+    return above_handicap / 7
 
 
 def will_next_score_affect_handicap(

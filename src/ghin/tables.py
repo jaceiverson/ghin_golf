@@ -1,12 +1,6 @@
-import datetime as dt
-
-import matplotlib.pyplot as plt
-import pandas as pd
 from rich import print
 from rich.align import Align
 from rich.table import Table
-
-from ghin.util import get_low_handicap_value, get_lowest_differentials, get_played_date
 
 
 def _colorize_consistency_score(consistency_score) -> str:
@@ -21,10 +15,23 @@ def _colorize_consistency_score(consistency_score) -> str:
     return f"[{color}]{consistency_score}"
 
 
-def format_handicap_spread(handicap_spreads: dict) -> str:
-    """formats the dictionary of handicap spread into a nice string
-    and outputs it using rich print"""
-    # Create a table
+def _colorize_worst_potential_handicap(
+    worst_potential_handicap, best_8_handicap
+) -> str:
+    """colors the worst potential handicap based on the size of the change from
+    the current (best 8) handicap: no change is green, a change under 1 is
+    yellow, and a change of 1 or more is red"""
+    change = worst_potential_handicap - best_8_handicap
+    if change == 0:
+        color = "green"
+    elif change < 1:
+        color = "yellow"
+    else:
+        color = "red"
+    return f"[{color}]{worst_potential_handicap}"
+
+
+def _build_alternative_handicaps_table(sorted_handicap_spreads: dict) -> Table:
     table = Table(title="Alternative Handicaps", caption_justify="center")
     table.add_column("Golfer", style="bold")
     table.add_column("Best 8", style="bold")
@@ -33,36 +40,7 @@ def format_handicap_spread(handicap_spreads: dict) -> str:
     table.add_column("Last 4", style="bold")
     table.add_column("All 20", style="bold")
     table.add_column("Drop 4HL", style="bold")
-    table.add_column("Range", style="bold")
-    table.add_column("Std Dev", style="bold")
-    table.add_column("Consistency Score (All 20)", style="bold")
-    table.add_column("Consistency Score (Worst 12)", style="bold")
 
-    next_table = Table(title="Next Round Helpers", caption_justify="center")
-    next_table.add_column("Golfer", style="bold")
-    next_table.add_column("Carry%", style="bold")
-    next_table.add_column("8th Scored", style="bold")
-    next_table.add_column(
-        "Score Fall Off",
-        style="bold",
-        justify="center",
-    )
-
-    next_table.add_column("Worst Potential Handicap", style="bold")
-
-    historical_table = Table(title="Historical Values", caption_justify="center")
-    historical_table.add_column("Golfer", style="bold")
-    historical_table.add_column("Low Handicap", style="bold")
-    historical_table.add_column("Low Date", style="bold")
-    historical_table.add_column("Total Scores", style="bold")
-    historical_table.add_column("Highest Score", style="bold")
-    historical_table.add_column("Lowest Score", style="bold")
-    historical_table.add_column("Average Score", style="bold")
-
-    # sort the handicaps by actual value
-    sorted_handicap_spreads = dict(
-        sorted(handicap_spreads.items(), key=lambda item: item[1]["best_8_handicap"])
-    )
     for golfer, handicap_spread in sorted_handicap_spreads.items():
         table.add_row(
             golfer,
@@ -72,15 +50,46 @@ def format_handicap_spread(handicap_spreads: dict) -> str:
             f"[yellow]{str(handicap_spread['last_4_rounds'])}",
             f"[yellow]{str(handicap_spread['all_20_handicap'])}",
             f"[yellow]{str(handicap_spread['drop_4_high_and_low_handicap'])}",
+        )
+    return table
+
+
+def _build_statistics_table(sorted_handicap_spreads: dict) -> Table:
+    statistics_table = Table(title="Statistics", caption_justify="center")
+    statistics_table.add_column("Golfer", style="bold")
+    statistics_table.add_column("Range", style="bold")
+    statistics_table.add_column("Std Dev", style="bold")
+    statistics_table.add_column("Consistency Score", style="bold")
+    statistics_table.add_column("Carry%", style="bold")
+
+    for golfer, handicap_spread in sorted_handicap_spreads.items():
+        statistics_table.add_row(
+            golfer,
             str(handicap_spread["differential_range"]),
             str(handicap_spread["handicap_std_dev"]),
             _colorize_consistency_score(
                 handicap_spread["consistency_score_best_8_all_20"]
             ),
-            _colorize_consistency_score(
-                handicap_spread["consistency_score_best_8_worst_12"]
-            ),
+            # read explanation in utils as to why we use 7 here
+            f"[{'red' if handicap_spread['carry_percentage'] > 0.5 else 'green'}]{handicap_spread['carry_percentage'] * 100:.1f}% ({int(handicap_spread['carry_percentage'] * 7)}/7)",
         )
+    return statistics_table
+
+
+def _build_next_round_helpers_table(sorted_handicap_spreads: dict) -> Table:
+    next_table = Table(title="Next Round Helpers", caption_justify="center")
+    next_table.add_column("Golfer", style="bold")
+    next_table.add_column("8th Scored", style="bold")
+    next_table.add_column(
+        "Score Fall Off",
+        style="bold",
+        justify="center",
+    )
+    next_table.add_column("Worst Potential Handicap", style="bold")
+    next_table.add_column("To Lower by .5", style="bold")
+    next_table.add_column("To Lower by 1", style="bold")
+
+    for golfer, handicap_spread in sorted_handicap_spreads.items():
         falloff_table = Table(
             padding=(0, 0, 0, 0),
             show_edge=False,
@@ -93,19 +102,37 @@ def format_handicap_spread(handicap_spreads: dict) -> str:
                 f"{i + 1}", style="bold", width=10, justify="center"
             )
         falloff_table.add_row(
-            f"{handicap_spread['next_4_rounds_to_fall_off'][0]}",
-            f"{handicap_spread['next_4_rounds_to_fall_off'][1]}",
-            f"{handicap_spread['next_4_rounds_to_fall_off'][2]}",
-            f"{handicap_spread['next_4_rounds_to_fall_off'][3]}",
+            *[
+                f"[{'green' if round_['is_scoring'] else 'red'}]{round_['value']:.1f}"
+                for round_ in handicap_spread["next_4_rounds_to_fall_off"]
+            ]
         )
         falloff_table = Align.left(falloff_table, pad=True)
         next_table.add_row(
             golfer,
-            f"[{'red' if handicap_spread['carry_percentage'] > 0.5 else 'green'}]{handicap_spread['carry_percentage'] * 100:.1f}%",
             f"[yellow]{handicap_spread['worst_scored_differential']}",
             falloff_table,
-            f"[yellow]{str(handicap_spread['worst_potential_handicap'])}",
+            _colorize_worst_potential_handicap(
+                handicap_spread["worst_potential_handicap"],
+                handicap_spread["best_8_handicap"],
+            ),
+            f"[cyan]{handicap_spread['differential_to_lower_by_point_five']}",
+            f"[cyan]{handicap_spread['differential_to_lower_by_one']}",
         )
+    return next_table
+
+
+def _build_historical_table(sorted_handicap_spreads: dict) -> Table:
+    historical_table = Table(title="Historical Values", caption_justify="center")
+    historical_table.add_column("Golfer", style="bold")
+    historical_table.add_column("Low Handicap", style="bold")
+    historical_table.add_column("Low Date", style="bold")
+    historical_table.add_column("Total Scores", style="bold")
+    historical_table.add_column("Highest Score", style="bold")
+    historical_table.add_column("Lowest Score", style="bold")
+    historical_table.add_column("Average Score", style="bold")
+
+    for golfer, handicap_spread in sorted_handicap_spreads.items():
         historical_table.add_row(
             golfer,
             f"[green]{str(handicap_spread['low_handicap'])}",
@@ -115,199 +142,121 @@ def format_handicap_spread(handicap_spreads: dict) -> str:
             str(handicap_spread["lowest_score"]),
             str(handicap_spread["average_score"]),
         )
+    return historical_table
 
-    # Print the tables
+
+def format_handicap_spread(handicap_spreads: dict) -> str:
+    """formats the dictionary of handicap spread into a nice string
+    and outputs it using rich print"""
+    # sort the handicaps by actual value
+    sorted_handicap_spreads = dict(
+        sorted(handicap_spreads.items(), key=lambda item: item[1]["best_8_handicap"])
+    )
+
+    print(_build_alternative_handicaps_table(sorted_handicap_spreads))
+    print(_build_statistics_table(sorted_handicap_spreads))
+    print(_build_next_round_helpers_table(sorted_handicap_spreads))
+    print(_build_historical_table(sorted_handicap_spreads))
+
+    for golfer, handicap_spread in sorted_handicap_spreads.items():
+        format_scoring_differentials(
+            handicap_spread["base_differentials"],
+            handicap_spread["scaled_differentials"],
+            handicap_spread["scaled_differences"],
+            handicap_spread["adjusted_differentials"],
+            handicap_spread["number_of_holes"],
+            handicap_spread["pcc"],
+            handicap_spread["course_names"],
+            handicap_spread["played_dates"],
+            handicap_spread["tee_set_sides"],
+            handicap_spread["best_8_handicap"],
+            golfer,
+        )
+
+
+def _colorize_scoring_differential(differential, handicap: float) -> str:
+    """colors a scoring differential relative to the handicap: within .5 of the
+    handicap (inclusive) is yellow, clearly lower is green, clearly higher is
+    red. a missing (None) differential is shown as a plain dash"""
+    if differential is None:
+        return "-"
+    if abs(differential - handicap) <= 0.5:
+        color = "yellow"
+    elif differential < handicap:
+        color = "green"
+    else:
+        color = "red"
+    return f"[{color}]{differential}"
+
+
+_TEE_SET_SIDE_LABELS = {"F9": "Front", "B9": "Back"}
+
+
+def format_scoring_differentials(
+    base_differentials: list,
+    scaled_differentials: list,
+    scaled_differences: list,
+    adjusted_differentials: list,
+    number_of_holes: list,
+    pcc: list,
+    course_names: list,
+    played_dates: list,
+    tee_set_sides: list,
+    handicap: float,
+    golfer: str = None,
+) -> None:
+    """
+    Formats all 20 scoring differentials into a rich table and prints it, one
+    row per round with a column for each differential type plus date played,
+    holes played, side of the course, PCC, and course. base_differentials,
+    scaled_differentials, scaled_differences, adjusted_differentials,
+    number_of_holes, pcc, course_names, played_dates, and tee_set_sides are
+    the like-named values returned by GHIN.get_handicap_spread(), each
+    time-ordered and the same length. scaled_differences shows how much a
+    9-hole round's differential was scaled up to its 18-hole equivalent
+    (None for 18-hole rounds, which aren't scaled). Rounds are ranked
+    best-to-worst by the adjusted differential, falling back to scaled or
+    base when a round doesn't have one, the differential columns are colored
+    relative to the handicap, and a dividing line marks the boundary between
+    the 8 scoring rounds and the 12 non-scoring ones.
+    """
+    effective_differentials = [
+        a or s or b
+        for a, s, b in zip(
+            adjusted_differentials, scaled_differentials, base_differentials
+        )
+    ]
+    ranked_indexes = sorted(
+        range(len(effective_differentials)), key=lambda i: effective_differentials[i]
+    )
+
+    title = f"Scoring Differentials ({golfer})" if golfer else "Scoring Differentials"
+    table = Table(title=title, caption_justify="center")
+    table.add_column("Round", style="bold")
+    table.add_column("Date", style="bold")
+    table.add_column("Holes", style="bold")
+    table.add_column("Side", style="bold")
+    table.add_column("Course", style="bold")
+    table.add_column("PCC", style="bold")
+    table.add_column("Base", style="bold")
+    table.add_column("Scaled", style="bold")
+    table.add_column("Scaled Diff", style="bold")
+    table.add_column("Adjusted", style="bold")
+
+    for rank, i in enumerate(ranked_indexes, start=1):
+        scaled_difference = scaled_differences[i]
+        table.add_row(
+            str(rank),
+            str(played_dates[i]),
+            str(number_of_holes[i]),
+            _TEE_SET_SIDE_LABELS.get(tee_set_sides[i], "-"),
+            str(course_names[i]),
+            str(pcc[i]),
+            _colorize_scoring_differential(base_differentials[i], handicap),
+            _colorize_scoring_differential(scaled_differentials[i], handicap),
+            "-" if scaled_difference is None else f"+{scaled_difference}",
+            _colorize_scoring_differential(adjusted_differentials[i], handicap),
+            end_section=(rank == 8),
+        )
+
     print(table)
-    print(next_table)
-    print(historical_table)
-
-
-def format_scoring_differentials(scoring_differential_array: list) -> None:
-    """
-    Formats the best 8 scoring differentials into a rich table and prints it.
-    scoring_differential_array is the "scoring_differential_array" value
-    returned by GHIN.get_handicap_spread().
-    """
-    table = Table(
-        title="Scoring Differentials (8 Best Rounds)", caption_justify="center"
-    )
-    for i in range(len(scoring_differential_array)):
-        table.add_column(f"Round {i + 1}", style="bold", justify="center")
-
-    table.add_row(*[str(value) for value in scoring_differential_array])
-
-    print(table)
-
-
-def plot_handicap_history(handicap_history: dict) -> None:
-    """
-    Plot the handicap history of a golfer.
-    handicap_history is the output of the GHIN.get_handicap_history() method.
-    """
-    handicap_vals = [
-        {
-            "date": dt.datetime.strptime(x["RevDate"], "%Y-%m-%dT%H:%M:%S").date(),
-            "value": float(x["Value"]),
-        }
-        for x in handicap_history["handicap_revisions"]
-        if float(x["Value"]) < 30
-    ]
-    # print(handicap_vals)
-
-    # Create the handicap plot
-    plt.figure(figsize=(12, 6))
-    pd.DataFrame(handicap_vals).plot(
-        x="date", y="value", ax=plt.gca(), title="Handicap Over Time"
-    )
-    plt.show()
-
-
-def plot_low_handicap_over_time(handicap_history: dict) -> None:
-    """
-    Plot the low handicap history of a golfer.
-    handicap_history is the output of the GHIN.get_handicap_history() method.
-    """
-    low_handicap_vals = [
-        {
-            "date": dt.datetime.strptime(x["RevDate"], "%Y-%m-%dT%H:%M:%S").date(),
-            "value": get_low_handicap_value(x["LowHIDisplay"]),
-        }
-        for x in handicap_history["handicap_revisions"]
-    ]
-    # print(low_handicap_vals)
-    # Create the handicap plot
-    plt.figure(figsize=(12, 6))
-    pd.DataFrame(low_handicap_vals).plot(
-        x="date", y="value", ax=plt.gca(), title="Low Handicap Over Time"
-    )
-    plt.show()
-
-
-def plot_scores_over_time(all_scores: dict) -> None:
-    """
-    Plot the scores over time for a golfer.
-    all_scores is the output of the GHIN.get_scores_history() method.
-    """
-    score_vals = [
-        {
-            "date": get_played_date(x["played_at"]).date(),
-            "number_of_holes": x["number_of_holes"],
-            "score": x["adjusted_gross_score"],
-            # "score_to_par": int(x["adjusted_gross_score"]) + int(x["course_handicap"]),
-            # "differential": x["differential"],
-            # "scaled_up_differential_9_holes": x["adjusted_scaled_up_differential"],
-            "differential": x.get("scaled_up_differential") or x.get("differential"),
-        }
-        for x in all_scores["scores"]
-    ]
-    # Create separate lines for different hole counts
-    df_scores = pd.DataFrame(score_vals)
-    # print(df_scores.shape)
-    df_scores.sort_values(by="date", inplace=True)
-
-    # Separate data for 9-hole and 18-hole scores
-    scores_9 = df_scores[df_scores["number_of_holes"] == 9]
-    scores_18 = df_scores[df_scores["number_of_holes"] == 18]
-
-    plt.figure(figsize=(12, 6))
-    plt.plot(
-        scores_9["date"],
-        scores_9["score"],
-        "o-",
-        label="9 Holes",
-        color="blue",
-        alpha=0.7,
-    )
-    plt.plot(
-        scores_18["date"],
-        scores_18["score"],
-        "s-",
-        label="18 Holes",
-        color="red",
-        alpha=0.7,
-    )
-
-    plt.xlabel("Date")
-    plt.ylabel("Score")
-    plt.title("Golf Scores Over Time by Number of Holes")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_differentials_over_time(all_scores: dict, handicap: float) -> None:
-    """
-    Plot the scoring differentials over time for a golfer.
-    all_scores is the output of the GHIN.get_scores_history() method.
-    handicap is the current handicap of the golfer.
-    """
-    score_vals = [
-        {
-            "date": get_played_date(x["played_at"]).date(),
-            "number_of_holes": x["number_of_holes"],
-            "score": x["adjusted_gross_score"],
-            # "score_to_par": int(x["adjusted_gross_score"]) + int(x["course_handicap"]),
-            # "differential": x["differential"],
-            # "scaled_up_differential_9_holes": x["adjusted_scaled_up_differential"],
-            "differential": x.get("scaled_up_differential") or x.get("differential"),
-        }
-        for x in all_scores["scores"]
-    ]
-    # Create separate lines for different hole counts
-    df_scores = pd.DataFrame(score_vals)
-    df_scores.sort_values(by="date", inplace=True)
-    df_scores.reset_index(drop=True, inplace=True)
-    df_scores["rolling_average"] = df_scores["differential"].rolling(window=20).mean()
-    df_scores["rolling_handicap"] = (
-        df_scores["differential"]
-        .rolling(window=20)
-        .apply(lambda x: get_lowest_differentials(x))
-    )
-    df_scores["current_handicap"] = handicap
-
-    # Separate data for 9-hole and 18-hole scores
-    scores_9 = df_scores[df_scores["number_of_holes"] == 9]
-    scores_18 = df_scores[df_scores["number_of_holes"] == 18]
-
-    plt.figure(figsize=(12, 6))
-    plt.plot(
-        scores_9["date"],
-        scores_9["differential"],
-        "o-",
-        label="9 Holes",
-        color="blue",
-        alpha=0.7,
-    )
-    plt.plot(
-        scores_18["date"],
-        scores_18["differential"],
-        "s-",
-        label="18 Holes",
-        color="red",
-        alpha=0.7,
-    )
-    plt.plot(
-        scores_9["date"],
-        scores_9["rolling_handicap"],
-        "o-",
-        label="Rolling Handicap",
-        color="green",
-        alpha=0.7,
-    )
-    plt.plot(
-        df_scores["date"],
-        df_scores["current_handicap"],
-        label="Current Handicap",
-        color="purple",
-    )
-
-    plt.xlabel("Date")
-    plt.ylabel("Differential")
-    plt.title("Golf Differentials Over Time by Number of Holes")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()
