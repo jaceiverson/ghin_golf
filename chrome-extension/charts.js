@@ -4,15 +4,14 @@
 // there's more than one series, a crosshair+tooltip on hover/focus, and the
 // validated categorical palette (dark-surface steps) for series color.
 
-// palette: https://coolors.co/adfcf9-89a894-4b644a-49393b-341c1c
 const CHART_COLORS = {
-  series1: "#adfcf9", // handicap line - brightest, mint
-  series2: "#d1a350", // differential bars - warm gold, contrasts against series1
-  grid: "#4b644a",
-  axis: "#4b644a",
-  muted: "#89a894",
-  ink: "#adfcf9",
-  surface: "#341c1c",
+  series1: "#3987e5", // categorical slot 1 (blue) - handicap line
+  series2: "#d95926", // categorical slot 2 (orange) - differential bars
+  grid: "#2c2c2a",
+  axis: "#383835",
+  muted: "#898781",
+  ink: "#ffffff",
+  surface: "#1a1a19",
 };
 
 const SVG_NS = "http://www.w3.org/2000/svg";

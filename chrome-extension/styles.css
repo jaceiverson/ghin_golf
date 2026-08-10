@@ -1,16 +1,15 @@
-/* palette: https://coolors.co/adfcf9-89a894-4b644a-49393b-341c1c */
 :root {
   color-scheme: light dark;
-  --bg: #341c1c;
-  --fg: #adfcf9;
-  --border: #4b644a;
-  --head-bg: #49393b;
-  --accent: #adfcf9;
-  --green: #89a894;
-  --yellow: #d1a350;
-  --red: #c96a5c;
-  --cyan: #7fd8d1;
-  --dim: #89a894;
+  --bg: #1e1e1e;
+  --fg: #d4d4d4;
+  --border: #3a3a3a;
+  --head-bg: #2a2a2a;
+  --accent: #4b9fff;
+  --green: #4caf50;
+  --yellow: #d4b106;
+  --red: #e05555;
+  --cyan: #4dd0e1;
+  --dim: #8a8a8a;
 }
 
 * { box-sizing: border-box; }
