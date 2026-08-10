@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>GHIN Tables</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <header>
+    <h1>GHIN Handicap Tables</h1>
+    <div id="status" class="status"></div>
+    <div id="golfer-menu-holder"></div>
+    <label class="checkbox-label" title="By default this panel closes automatically when you leave ghin.com">
+      <input type="checkbox" id="keep-open-toggle" />
+      Keep open on other sites
+    </label>
+    <button id="clear-btn" title="Clear captured data">Clear data</button>
+  </header>
+
+  <nav id="tabs" class="tabs">
+    <button class="tab-btn active" data-tab="alt">Alternative Handicaps</button>
+    <button class="tab-btn" data-tab="stats">Statistics</button>
+    <button class="tab-btn" data-tab="next">Next Round Helpers</button>
+    <button class="tab-btn" data-tab="hist">Historical</button>
+    <button class="tab-btn" data-tab="diff">Scoring Differentials</button>
+    <button class="tab-btn" data-tab="charts">Charts</button>
+    <button class="tab-btn" data-tab="raw">Raw Data</button>
+  </nav>
+
+  <main id="panels">
+    <section id="panel-alt" class="panel active"></section>
+    <section id="panel-stats" class="panel"></section>
+    <section id="panel-next" class="panel">
+      <div id="next-table-holder"></div>
+      <div class="whatif-panel">
+        <h3>What If? — Simulate Your Next Round</h3>
+        <div class="diff-controls">
+          <label for="whatif-golfer-select">Golfer:</label>
+          <select id="whatif-golfer-select"></select>
+        </div>
+        <div class="diff-controls">
+          <input type="text" id="whatif-course-search" placeholder="Search courses (e.g. &quot;pebble&quot;)" />
+          <button id="whatif-search-btn">Search</button>
+        </div>
+        <div id="whatif-course-results"></div>
+        <div id="whatif-status" class="status fetch-status"></div>
+        <h4 id="whatif-course-title" class="whatif-course-title hidden"></h4>
+        <div id="whatif-tables-holder"></div>
+        <div id="whatif-manual-controls" class="whatif-manual hidden">
+          <h4>Or: estimated impact of a specific score</h4>
+          <div class="diff-controls">
+            <label for="whatif-tee-select">Tee:</label>
+            <select id="whatif-tee-select"></select>
+            <label for="whatif-score-input">Gross score:</label>
+            <input type="number" id="whatif-score-input" min="18" max="200" step="1" />
+            <button id="whatif-calculate-btn">Calculate</button>
+          </div>
+          <div id="whatif-result"></div>
+        </div>
+        <details id="whatif-debug" class="debug-details dev-only">
+          <summary>Raw API response (debug)</summary>
+          <pre id="whatif-debug-json" class="debug-json"></pre>
+        </details>
+      </div>
+    </section>
+    <section id="panel-hist" class="panel"></section>
+    <section id="panel-diff" class="panel">
+      <div class="diff-controls">
+        <label for="golfer-select">Golfer:</label>
+        <select id="golfer-select"></select>
+        <div id="col-menu-holder"></div>
+      </div>
+      <div id="diff-table-holder"></div>
+    </section>
+    <section id="panel-charts" class="panel">
+      <div class="diff-controls">
+        <label for="chart-golfer-select">Golfer:</label>
+        <select id="chart-golfer-select"></select>
+      </div>
+      <div id="charts-holder"></div>
+    </section>
+    <section id="panel-raw" class="panel">
+      <div id="raw-errors"></div>
+      <div id="excluded-scores-holder"></div>
+      <div class="diff-controls">
+        <label for="fetch-golfer-select">Golfer:</label>
+        <select id="fetch-golfer-select"></select>
+        <button id="fetch-all-btn">Fetch full history</button>
+      </div>
+      <div id="fetch-status" class="status fetch-status"></div>
+      <div class="diff-controls">
+        <button id="csv-btn">Download captured scores as CSV</button>
+      </div>
+      <div id="csv-preview-holder"></div>
+    </section>
+  </main>
+
+  <script src="calc.js"></script>
+  <script src="charts.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+
+</html>

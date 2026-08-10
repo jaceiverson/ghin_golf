@@ -1,12 +1,35 @@
 {
-    "manifest_version": 3,
-    "name": "GHIN Alternative Handicaps",
-    "version": "1.0",
-    "description": "A Chrome Extension for more insightful handicap statistics.",
-    "action": {
-        "default_popup": "popup.html",
-        "default_icon": {"16": "./icons/icon16.png", "48": "./icons/icon48.png", "128": "./icons/icon128.png"}
+  "manifest_version": 3,
+  "name": "GHIN Handicap Tables",
+  "version": "1.0.0",
+  "description": "Reads GHIN.com's own network responses and renders the handicap-spread tables (Alternative Handicaps, Statistics, Next Round Helpers, Historical, Scoring Differentials) in a side panel, with an optional full-history fetch using your logged-in session.",
+  "permissions": ["storage", "sidePanel", "tabs", "windows"],
+  "host_permissions": ["https://*.ghin.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open GHIN Tables"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.ghin.com/*"],
+      "js": ["content-bridge.js"],
+      "run_at": "document_start"
     },
-    "icons": {"16": "./icons/icon16.png", "48": "./icons/icon48.png", "128": "./icons/icon128.png"},
-    "permissions": ["storage", "activeTab","window"]
+    {
+      "matches": ["https://*.ghin.com/*"],
+      "js": ["injected.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }
