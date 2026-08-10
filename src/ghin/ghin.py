@@ -17,13 +17,18 @@ from ghin.util import get_differential_distribution, get_low_handicap_value
 class GHIN:
     """Class for interacting with the GHIN API"""
 
-    def __init__(self, ghin_number: Union[int, str] = None) -> None:
+    def __init__(
+        self, ghin_number: Union[int, str] = None, save_outputs: bool = False
+    ) -> None:
         """Initialize the GHIN class"""
         self.score_limit: int = 25
         self.from_date_played: Optional[str] = None
         self.to_date_played: Optional[str] = None
         self.last_20: Optional[dict] = None
         self.ghin_auth_token: Optional[str] = None
+        self.preserve_outputs = save_outputs
+        # create the directory if we need it for GHIN
+        os.makedirs(f"outputs/{ghin_number}/", exist_ok=True)
 
         self.ghin_number = self._process_ghin_number_input(ghin_number)
         self.ghin_account_info = self._get_ghin_account_information()
@@ -128,12 +133,18 @@ class GHIN:
         """get the date you created the ghin account"""
         url = f"https://api2.ghin.com/api/v1/golfers/search.json?golfer_id={self.ghin_number}&page=1&per_page=100&source=GHINcom"
         response = self._make_request(url, self.get_request_params())
+        if self.preserve_outputs:
+            with open(f"outputs/{self.ghin_number}/account_info.json", "w") as f:
+                json.dump(response, f)
         return response
 
     def _get_live_handicap(self) -> float:
         """Return the current handicap for the GHIN number"""
         url = f"https://api2.ghin.com/api/v1/golfers/{self.ghin_number}/handicap_history.json?revCount=0&date_begin={dt.date.today().isoformat()}&date_end={dt.date.today().isoformat()}&source=GHINcom"
         response = self._make_request(url, self.get_request_params())
+        if self.preserve_outputs:
+            with open(f"outputs/{self.ghin_number}/live_handicap.json", "w") as f:
+                json.dump(response, f)
         display_handicap = response["handicap_revisions"][0]["Display"]
         if "+" in display_handicap:
             # if the handicap is a plus, we need to convert it to a float
@@ -144,15 +155,24 @@ class GHIN:
         """return list from the golfers you follow"""
         url = f"https://api2.ghin.com/api/v1/followed_golfers/{self.ghin_number}.json?source=GHINcom"
         response = self._make_request(url)
+        if self.preserve_outputs:
+            with open(f"outputs/{self.ghin_number}/friends.json", "w") as f:
+                json.dump(response, f)
         return response.get("golfers", [])
 
     def get_handicap_history(self) -> dict:
         """Return the handicap history for the GHIN number"""
         url = f"https://api2.ghin.com/api/v1/golfers/{self.ghin_number}/handicap_history.json?revCount=0&date_begin={self.ghin_start_date}&date_end={dt.date.today().isoformat()}&source=GHINcom"
         response = self._make_request(url, self.get_request_params())
+        if self.preserve_outputs:
+            with open(f"outputs/{self.ghin_number}/handicap_history.json", "w") as f:
+                json.dump(response, f)
         return response
 
-    def get_scores_history(self, num_of_scores_to_pull: int = 20) -> dict:
+    def get_scores_history(
+        self,
+        num_of_scores_to_pull: int = 20,
+    ) -> dict:
         """return the scores history for the GHIN number"""
         offset_value = 0
         max_scores_per_page = min(num_of_scores_to_pull, 25)
@@ -169,6 +189,10 @@ class GHIN:
             offset_value += max_scores_per_page
             if response.get("total_count") < num_of_scores_to_pull:
                 break
+
+        if self.preserve_outputs:
+            with open(f"outputs/{self.ghin_number}/scores.json", "w") as f:
+                json.dump(responses, f)
         # save some of the stats from the API response
         self.total_scores = response.get("total_count")
         self.highest_score = response.get("highest_score")
@@ -177,7 +201,7 @@ class GHIN:
         self.last_20_scored_rounds = responses
         return responses
 
-    def compare_friends(self, save: bool) -> None:
+    def compare_friends(self, save: bool, anonymize: bool = False) -> None:
         """
         Method to compare you and your friend's handicaps in tables
         """
@@ -191,9 +215,16 @@ class GHIN:
         }
         friend_spreads = self.group_handicap_spreads(friend_data)
         spread_data.update(friend_spreads)
+
+        if anonymize:
+            anonymous_data = {}
+            for idx, key in enumerate(spread_data):
+                anonymous_data[f"Golfer {idx}"] = spread_data[key]
+            spread_data = anonymous_data
+
         format_handicap_spread(spread_data)
-        if save:
-            with open("outputs/friend_handicap_spreads.json", "w") as f:
+        if self.preserve_outputs:
+            with open(f"outputs/{self.ghin_number}/friend_handicaps.json", "w") as f:
                 json.dump(spread_data, f, indent=4)
 
     @staticmethod
@@ -229,10 +260,10 @@ class GHIN:
         params = self.get_request_params()
         return self._make_request(self.scores_url, params)
 
-    def get_handicap_spread(self) -> dict:
+    def get_handicap_spread(self, save_outputs: bool = False) -> dict:
         """Return the best 8, worst 8, and all 20 handicap values"""
         if self.last_20_scored_rounds is None:
-            self.get_scores_history()
+            self.get_scores_history(save_outputs=save_outputs)
         differential = [
             x.get("scaled_up_differential") or x.get("differential")
             for x in self.last_20_scored_rounds["scores"]
@@ -245,6 +276,7 @@ class GHIN:
         # now we can sort the differential to get the other metrics
         differential.sort()
         worst_8_handicap = round(sum(differential[-8:]) / 8, 1)
+        worst_12_handicap = round(sum(differential[-12:]) / 12, 1)
         all_20_handicap = round(sum(differential) / len(differential), 1)
         drop_4_high_and_low_handicap = round(sum(differential[4:-4]) / 12, 1)
         # alternative metrics
@@ -261,6 +293,7 @@ class GHIN:
         )
 
         return {
+            "ghin": self.ghin_number,
             "best_8_handicap": self.handicap,
             "worst_8_handicap": worst_8_handicap,
             "last_8_rounds": most_recent_eight,
@@ -279,6 +312,9 @@ class GHIN:
             "highest_score": self.highest_score,
             "lowest_score": self.lowest_score,
             "average_score": self.average_score,
+            "scoring_differential_array": differential[:8],
+            "consistency_score_best_8_all_20": f"{self.handicap / all_20_handicap * 100:.1f}%",
+            "consistency_score_best_8_worst_12": f"{self.handicap / worst_12_handicap * 100:.1f}%",
         }
 
     def group_handicap_spreads(self, list_of_golfers: list) -> dict:
@@ -324,7 +360,8 @@ class GHIN:
             handicap_spreads = {
                 f"golfer_{i}": hs for i, hs in enumerate(handicap_spreads.values())
             }
+
         format_handicap_spread(handicap_spreads)
 
-        with open("outputs/output.json", "w") as f:
+        with open("outputs/sample.json", "w") as f:
             json.dump(handicap_spreads, f)

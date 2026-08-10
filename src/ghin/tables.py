@@ -9,6 +9,18 @@ from rich.table import Table
 from ghin.util import get_low_handicap_value, get_lowest_differentials, get_played_date
 
 
+def _colorize_consistency_score(consistency_score) -> str:
+    """colors a consistency score percentage: <50% red, <75% yellow, else green"""
+    consistency_value = float(str(consistency_score).rstrip("%"))
+    if consistency_value < 50:
+        color = "red"
+    elif consistency_value < 75:
+        color = "yellow"
+    else:
+        color = "green"
+    return f"[{color}]{consistency_score}"
+
+
 def format_handicap_spread(handicap_spreads: dict) -> str:
     """formats the dictionary of handicap spread into a nice string
     and outputs it using rich print"""
@@ -23,6 +35,8 @@ def format_handicap_spread(handicap_spreads: dict) -> str:
     table.add_column("Drop 4HL", style="bold")
     table.add_column("Range", style="bold")
     table.add_column("Std Dev", style="bold")
+    table.add_column("Consistency Score (All 20)", style="bold")
+    table.add_column("Consistency Score (Worst 12)", style="bold")
 
     next_table = Table(title="Next Round Helpers", caption_justify="center")
     next_table.add_column("Golfer", style="bold")
@@ -60,6 +74,12 @@ def format_handicap_spread(handicap_spreads: dict) -> str:
             f"[yellow]{str(handicap_spread['drop_4_high_and_low_handicap'])}",
             str(handicap_spread["differential_range"]),
             str(handicap_spread["handicap_std_dev"]),
+            _colorize_consistency_score(
+                handicap_spread["consistency_score_best_8_all_20"]
+            ),
+            _colorize_consistency_score(
+                handicap_spread["consistency_score_best_8_worst_12"]
+            ),
         )
         falloff_table = Table(
             padding=(0, 0, 0, 0),
@@ -100,6 +120,23 @@ def format_handicap_spread(handicap_spreads: dict) -> str:
     print(table)
     print(next_table)
     print(historical_table)
+
+
+def format_scoring_differentials(scoring_differential_array: list) -> None:
+    """
+    Formats the best 8 scoring differentials into a rich table and prints it.
+    scoring_differential_array is the "scoring_differential_array" value
+    returned by GHIN.get_handicap_spread().
+    """
+    table = Table(
+        title="Scoring Differentials (8 Best Rounds)", caption_justify="center"
+    )
+    for i in range(len(scoring_differential_array)):
+        table.add_column(f"Round {i + 1}", style="bold", justify="center")
+
+    table.add_row(*[str(value) for value in scoring_differential_array])
+
+    print(table)
 
 
 def plot_handicap_history(handicap_history: dict) -> None:

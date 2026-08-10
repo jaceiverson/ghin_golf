@@ -9,4 +9,4 @@ if __name__ == "__main__":
     # # jace
     g = GHIN(1104482)
 
-    g.compare_friends(save=True)
+    g.compare_friends(save=True, anonymize=False)

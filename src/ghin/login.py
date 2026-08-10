@@ -94,7 +94,7 @@ def process_to_get_ghin_cookie() -> None | str:
         print("NO FILE")
         # if the last pulled time is less than 2 hours ago
     elif dt.datetime.now() - last_pulled < dt.timedelta(hours=2):
-        print("PULLED RECENTLY")
+        # print("PULLED RECENTLY")
         return None
     first_url = "https://www.ghin.com/login/"
     api_url_to_find = "https://api2.ghin.com/api/v1/"
