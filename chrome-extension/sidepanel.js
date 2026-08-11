@@ -723,31 +723,23 @@ async function render() {
   const visibleSpreads = spreads.filter((s) => !hiddenGolferIds.has(s.id));
 
   const altPanel = document.getElementById("panel-alt");
-  const statsPanel = document.getElementById("panel-stats");
   const nextPanel = document.getElementById("next-table-holder");
-  const histPanel = document.getElementById("panel-hist");
   clearChildren(altPanel);
-  clearChildren(statsPanel);
   clearChildren(nextPanel);
-  clearChildren(histPanel);
 
   if (!spreads.length) {
     const note = "Browse GHIN.com (your dashboard, score history, and followed golfers) to capture data.";
     altPanel.appendChild(el("div", { className: "empty-note", text: note }));
-    statsPanel.appendChild(el("div", { className: "empty-note", text: note }));
     nextPanel.appendChild(el("div", { className: "empty-note", text: note }));
-    histPanel.appendChild(el("div", { className: "empty-note", text: note }));
   } else if (!visibleSpreads.length) {
     const note = "All golfers are hidden - use the Golfers menu above to show one.";
     altPanel.appendChild(el("div", { className: "empty-note", text: note }));
-    statsPanel.appendChild(el("div", { className: "empty-note", text: note }));
     nextPanel.appendChild(el("div", { className: "empty-note", text: note }));
-    histPanel.appendChild(el("div", { className: "empty-note", text: note }));
   } else {
     renderAlternativeHandicaps(altPanel, visibleSpreads);
-    renderStatistics(statsPanel, visibleSpreads);
+    renderStatistics(altPanel, visibleSpreads);
+    renderHistorical(altPanel, visibleSpreads);
     renderNextRoundHelpers(nextPanel, visibleSpreads);
-    renderHistorical(histPanel, visibleSpreads);
   }
 
   currentSelectedGolferId = populateGolferSelect(document.getElementById("golfer-select"), spreads, currentSelectedGolferId);
