@@ -26,10 +26,12 @@ function colorizeWorstPotential(worst, best8) {
   return { text: fmt1(worst), cls };
 }
 
-// mirrors tables._colorize_scoring_differential
+// mirrors tables._colorize_scoring_differential. Yellow is reserved for an
+// exact match (at the displayed 1-decimal precision) - not merely "close" -
+// so round both sides the same way fmt1 displays them before comparing.
 function colorizeDifferential(diff, handicap) {
   if (diff == null) return { text: "-", cls: "dash" };
-  const cls = Math.abs(diff - handicap) <= 0.5 ? "clr-yellow" : diff < handicap ? "clr-green" : "clr-red";
+  const cls = round1(diff) === round1(handicap) ? "clr-yellow" : diff < handicap ? "clr-green" : "clr-red";
   return { text: fmt1(diff), cls };
 }
 
@@ -51,7 +53,8 @@ function buildTable(title, headers, rows) {
   table.appendChild(thead);
   const tbody = el("tbody");
   for (const row of rows) {
-    const tr = el("tr", { className: row.sectionEnd ? "section-end" : "" });
+    const className = [row.sectionEnd ? "section-end" : "", row.highlight ? "scoring-row" : ""].filter(Boolean).join(" ");
+    const tr = el("tr", { className });
     for (const c of row.cells) tr.appendChild(c);
     tbody.appendChild(tr);
   }
@@ -95,24 +98,136 @@ function renderAlternativeHandicaps(container, spreads) {
   );
 }
 
+// one segment per best-8 differential: below the handicap ("carry" - the
+// good rounds pulling it down) is orange, above it ("drag" - the rounds
+// holding it back) is violet, and an exact match (at the displayed
+// 1-decimal precision) is a neutral gray - deliberately NOT red/green/yellow,
+// so it can't be confused with the good/bad coloring used everywhere else
+// (Scoring Differentials, consistency score, etc). This is the opposite
+// mapping from colorizeDifferential (which colors below-handicap green) -
+// deliberate, per how carry/drag are meant to read here. No counts anywhere -
+// the bar segments and the two legend words are the whole story.
+function carryDragRatioCell(best8Differentials, handicap) {
+  const bar = el("div", { className: "ratio-bar" });
+  for (const diff of best8Differentials) {
+    const cls = round1(diff) === round1(handicap) ? "match" : diff < handicap ? "carry" : "drag";
+    bar.appendChild(el("span", { className: `ratio-seg ${cls}` }));
+  }
+  const label = el("div", { className: "ratio-label" }, [
+    el("span", { className: "clr-carry", text: "Carry" }),
+    el("span", { text: "  " }),
+    el("span", { className: "clr-drag", text: "Drag" }),
+  ]);
+  return el("td", {}, [bar, label]);
+}
+
+// a min-to-max line with a shaded band for avg +/- 1 std dev and a marker
+// at the average - a lightweight stand-in for a full box plot, in the same
+// inline-table-cell style as the Carry:Drag bar above.
+function rangeStdDevStripCell(min, max, avg, stddev) {
+  const range = max - min;
+  const pct = (v) => (range > 0 ? Math.min(100, Math.max(0, ((v - min) / range) * 100)) : 50);
+  const bandLowPct = pct(avg - stddev);
+  const bandHighPct = pct(avg + stddev);
+  const avgPct = pct(avg);
+
+  const strip = el("div", { className: "range-strip" }, [
+    el("div", { className: "range-track" }),
+    el("div", { className: "range-stddev-band", attrs: { style: `left:${bandLowPct}%; width:${bandHighPct - bandLowPct}%` } }),
+    el("div", { className: "range-avg-marker", attrs: { style: `left:${avgPct}%` } }),
+  ]);
+  const labels = el("div", { className: "range-labels" }, [
+    el("span", { className: "range-min", text: fmt1(min) }),
+    el("span", { className: "range-avg-label", text: `avg ${fmt1(avg)} ± ${fmt1(stddev)}` }),
+    el("span", { className: "range-max", text: fmt1(max) }),
+  ]);
+  return el("td", {}, [strip, labels]);
+}
+
 // mirrors tables._build_statistics_table
 function renderStatistics(container, spreads) {
   const sorted = sortedSpreads(spreads);
   container.appendChild(
     buildTransposedTable("Statistics", sorted, [
-      { label: "Range", render: (s) => cell(fmt1(s.differentialRange)) },
-      { label: "Std Dev", render: (s) => cell(fmt1(s.handicapStdDev)) },
-      { label: "Consistency Score", render: (s) => coloredCell(colorizeConsistency(s.consistencyScoreBest8All20)) },
       {
-        label: "Carry%",
-        render: (s) =>
-          cell(
-            `${(s.carryPercentage * 100).toFixed(1)}% (${Math.trunc(s.carryPercentage * 7)}/7)`,
-            s.carryPercentage > 0.5 ? "clr-red" : "clr-green"
-          ),
+        label: "Range & Std Dev (all 20 scores)",
+        render: (s) => rangeStdDevStripCell(s.differentialMin, s.differentialMax, s.differentialAverage, s.handicapStdDev),
+      },
+      { label: "Consistency Score", render: (s) => coloredCell(colorizeConsistency(s.consistencyScoreBest8All20)) },
+      { label: "Carry:Drag", render: (s) => carryDragRatioCell(s.best8Differentials, s.best8Handicap) },
+      {
+        label: "Current Hot Streak",
+        render: (s) => cell(`${s.hotStreakCurrent} ${"🔥".repeat(s.hotStreakCurrent)}`.trim(), s.hotStreakCurrent > 0 ? "clr-green" : ""),
+      },
+      {
+        label: "Best Hot Streak",
+        render: (s) => {
+          // only fire up the record row when the active streak has actually
+          // caught up to it - otherwise it's history, not something hot.
+          const isCurrentlyTied = s.hotStreakCurrent > 0 && s.hotStreakCurrent >= s.hotStreakLongest;
+          const fire = isCurrentlyTied ? ` ${"🔥".repeat(s.hotStreakLongest)}` : "";
+          return cell(`${s.hotStreakLongest}${fire}`, s.hotStreakLongest > 0 ? "clr-green" : "");
+        },
+      },
+      {
+        label: "Current Cold Streak",
+        render: (s) => cell(`${s.coldStreakCurrent} ${"🧊".repeat(s.coldStreakCurrent)}`.trim(), s.coldStreakCurrent > 0 ? "clr-red" : ""),
+      },
+      {
+        label: "Worst Cold Streak",
+        render: (s) => {
+          const isCurrentlyTied = s.coldStreakCurrent > 0 && s.coldStreakCurrent >= s.coldStreakLongest;
+          const ice = isCurrentlyTied ? ` ${"🧊".repeat(s.coldStreakLongest)}` : "";
+          return cell(`${s.coldStreakLongest}${ice}`, s.coldStreakLongest > 0 ? "clr-red" : "");
+        },
       },
     ])
   );
+}
+
+// hot/cold streak round-detail tables are rebuilt fresh every render (state
+// lives in this plain JS variable, not the button's own DOM node, since the
+// button itself gets torn down and recreated each render too).
+let showStreakDetails = false;
+
+function renderStreakDetailsSection(container, spreads) {
+  const anyStreaks = spreads.some((s) => s.hotStreakLongest > 0 || s.coldStreakLongest > 0);
+  if (!anyStreaks) return;
+
+  const toggleBtn = el("button", { className: "streak-toggle-btn", text: showStreakDetails ? "Hide Streaks" : "Show Streaks" });
+  toggleBtn.addEventListener("click", () => {
+    showStreakDetails = !showStreakDetails;
+    render();
+  });
+  container.appendChild(toggleBtn);
+
+  if (showStreakDetails) {
+    renderStreakRoundsDetails(container, spreads, "hotStreakLongest", "hotStreakBestRounds", "🔥 Best Hot Streak Rounds");
+    renderStreakRoundsDetails(container, spreads, "coldStreakLongest", "coldStreakBestRounds", "🧊 Worst Cold Streak Rounds");
+  }
+}
+
+// the rounds that made up each golfer's best hot streak (or worst cold
+// streak - same shape, just different fields/title) - broken out of the
+// compact Statistics grid since "5 rounds" doesn't leave room for dates and
+// scores. Only rendered for golfers with an actual streak (>0) to show.
+function renderStreakRoundsDetails(container, spreads, lengthKey, roundsKey, titlePrefix) {
+  const withStreaks = spreads.filter((s) => s[lengthKey] > 0 && s[roundsKey]?.length);
+  if (!withStreaks.length) return;
+  for (const s of sortedSpreads(withStreaks)) {
+    const rows = s[roundsKey].map((r) => ({
+      cells: [
+        cell(rawText(r.played_at)),
+        cell(rawText(r.course_name)),
+        cell(rawText(r.adjusted_gross_score)),
+        coloredCell(colorizeDifferential(effectiveDifferential(r), s.best8Handicap)),
+        cell(isValidHandicapIndex(r.handicap_index) ? fmt1(r.handicap_index) : "-"),
+      ],
+    }));
+    container.appendChild(
+      buildTable(`${titlePrefix} (${s.name})`, ["Date", "Course", "Gross Score", "Differential", "Handicap at the Time"], rows)
+    );
+  }
 }
 
 // mirrors tables._build_next_round_helpers_table
@@ -175,31 +290,31 @@ function rawText(v) {
   return v == null || v === "" ? "-" : String(v);
 }
 
-function excludeButtonCell(scoreId) {
-  const btn = el("button", { className: "exclude-btn", text: "Exclude", attrs: { title: "Remove this round from all tables and charts" } });
-  btn.addEventListener("click", () => excludeScore(scoreId));
-  return el("td", {}, [btn]);
-}
-
-// always visible, not part of the toggle picker
-const ALWAYS_COLUMNS = [
-  { label: "", render: (r) => excludeButtonCell(r.raw.id) },
-  { label: "Round", render: (r) => cell(r.rank) },
-  { label: "Date", render: (r) => cell(rawText(r.raw.played_at)) },
-  { label: "Holes", render: (r) => cell(rawText(r.raw.number_of_holes)) },
-  { label: "Course Name", render: (r) => cell(rawText(r.raw.course_name)) },
-  { label: "Tee Side", render: (r) => cell(TEE_SIDE_LABELS[r.raw.tee_set_side] || rawText(r.raw.tee_set_side)) },
-  { label: "Gross Score", render: (r) => cell(rawText(r.raw.adjusted_gross_score)) },
-  { label: "Course Rating", render: (r) => cell(fmt1(r.raw.course_rating)) },
-  {
-    label: "Adjusted",
-    render: (r, spread) => coloredCell(colorizeDifferential(effectiveDifferential(r.raw), spread.best8Handicap)),
-  },
-];
-
-// everything else in the raw score object, grouped for the column-picker
-// popup. Hidden by default - toggled on via the "Columns" menu.
+// every column is toggleable via the "Columns" menu, grouped for that
+// popup - including what used to be a fixed "always visible" set (now just
+// the first group, defaulting to checked so nothing changes on first load).
 const TOGGLE_COLUMN_GROUPS = [
+  {
+    group: "Default Columns",
+    columns: [
+      { key: "round", label: "Round", render: (r) => cell(r.rank, DETAIL_COL) },
+      { key: "played_at", label: "Date", render: (r) => cell(rawText(r.raw.played_at), DETAIL_COL) },
+      { key: "number_of_holes", label: "Holes", render: (r) => cell(rawText(r.raw.number_of_holes), DETAIL_COL) },
+      { key: "course_name", label: "Course Name", render: (r) => cell(rawText(r.raw.course_name), DETAIL_COL) },
+      {
+        key: "tee_set_side",
+        label: "Tee Side",
+        render: (r) => cell(TEE_SIDE_LABELS[r.raw.tee_set_side] || rawText(r.raw.tee_set_side), DETAIL_COL),
+      },
+      { key: "adjusted_gross_score", label: "Gross Score", render: (r) => cell(rawText(r.raw.adjusted_gross_score), DETAIL_COL) },
+      { key: "course_rating", label: "Course Rating", render: (r) => cell(fmt1(r.raw.course_rating), DETAIL_COL) },
+      {
+        key: "adjusted",
+        label: "Adjusted",
+        render: (r, spread) => coloredCell(colorizeDifferential(effectiveDifferential(r.raw), spread.best8Handicap), DETAIL_COL),
+      },
+    ],
+  },
   {
     group: "Differentials",
     columns: [
@@ -323,7 +438,13 @@ let visibleColumnKeys = new Set();
 
 async function loadColumnPrefs() {
   const { ghinColumnPrefs } = await chrome.storage.local.get("ghinColumnPrefs");
-  visibleColumnKeys = new Set(ghinColumnPrefs || []);
+  if (ghinColumnPrefs) {
+    visibleColumnKeys = new Set(ghinColumnPrefs);
+  } else {
+    // first run, nothing saved yet - default to exactly what used to be the
+    // fixed "always visible" set, so nothing changes for existing users.
+    visibleColumnKeys = new Set(TOGGLE_COLUMN_GROUPS[0].columns.map((c) => c.key));
+  }
 }
 
 function saveColumnPrefs() {
@@ -343,34 +464,127 @@ function buildColumnMenu() {
   const details = el("details", { className: "col-menu" });
   details.appendChild(el("summary", { text: "Columns" }));
   const body = el("div", { className: "col-menu-body" });
+
+  function commitVisibilityChange() {
+    saveColumnPrefs();
+    applyColumnVisibility(document.getElementById("diff-table-holder"));
+  }
+
+  // group select-alls flip to indeterminate when partially checked, and the
+  // global one reflects the state across every group at once.
+  const globalSelectAll = el("input", { attrs: { type: "checkbox" } });
+  const globalLabel = el("label", { className: "col-menu-item col-menu-select-all" }, [
+    globalSelectAll,
+    el("span", { text: "Select All" }),
+  ]);
+  body.appendChild(globalLabel);
+
+  const groups = []; // { selectAllCheckbox, entries: [{checkbox, key}] }
+
+  function refreshSelectAllStates() {
+    for (const g of groups) {
+      const checkedCount = g.entries.filter((e) => e.checkbox.checked).length;
+      g.selectAllCheckbox.checked = checkedCount === g.entries.length;
+      g.selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < g.entries.length;
+    }
+    const allEntries = groups.flatMap((g) => g.entries);
+    const totalChecked = allEntries.filter((e) => e.checkbox.checked).length;
+    globalSelectAll.checked = totalChecked === allEntries.length;
+    globalSelectAll.indeterminate = totalChecked > 0 && totalChecked < allEntries.length;
+  }
+
   for (const group of TOGGLE_COLUMN_GROUPS) {
-    body.appendChild(el("div", { className: "col-menu-group", text: group.group }));
+    const groupSelectAll = el("input", { attrs: { type: "checkbox" } });
+    const groupHeader = el("div", { className: "col-menu-group-header" }, [
+      el("span", { className: "col-menu-group", text: group.group }),
+      el("label", { className: "col-menu-select-all-inline" }, [groupSelectAll, el("span", { text: "All" })]),
+    ]);
+    body.appendChild(groupHeader);
+
+    const entries = [];
     for (const col of group.columns) {
-      const label = el("label", { className: "col-menu-item" });
       const checkbox = el("input", { attrs: { type: "checkbox", value: col.key } });
       checkbox.checked = visibleColumnKeys.has(col.key);
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) visibleColumnKeys.add(col.key);
         else visibleColumnKeys.delete(col.key);
-        saveColumnPrefs();
-        applyColumnVisibility(document.getElementById("diff-table-holder"));
+        commitVisibilityChange();
+        refreshSelectAllStates();
       });
-      label.appendChild(checkbox);
-      label.appendChild(el("span", { text: col.label }));
+      const label = el("label", { className: "col-menu-item" }, [checkbox, el("span", { text: col.label })]);
       body.appendChild(label);
+      entries.push({ checkbox, key: col.key });
     }
+    groups.push({ selectAllCheckbox: groupSelectAll, entries });
+
+    groupSelectAll.addEventListener("change", () => {
+      const checked = groupSelectAll.checked;
+      for (const { checkbox, key } of entries) {
+        checkbox.checked = checked;
+        if (checked) visibleColumnKeys.add(key);
+        else visibleColumnKeys.delete(key);
+      }
+      commitVisibilityChange();
+      refreshSelectAllStates();
+    });
   }
+
+  globalSelectAll.addEventListener("change", () => {
+    const checked = globalSelectAll.checked;
+    for (const g of groups) {
+      for (const { checkbox, key } of g.entries) {
+        checkbox.checked = checked;
+        if (checked) visibleColumnKeys.add(key);
+        else visibleColumnKeys.delete(key);
+      }
+    }
+    commitVisibilityChange();
+    refreshSelectAllStates();
+  });
+
+  refreshSelectAllStates();
   details.appendChild(body);
   return details;
 }
 
+// "differential" (default) ranks rounds best-to-worst with a divider after
+// the 8 that count; "date" instead sorts newest-first and highlights the
+// counting rounds directly, since the divider line doesn't mean anything
+// once date order breaks up the ranking.
+let diffSortMode = "differential";
+
+function renderDiffSortControls() {
+  const row = el("div", { className: "diff-controls" });
+  const dateBtn = el("button", { text: "Sort by Date (highlight scoring rounds)" });
+  dateBtn.disabled = diffSortMode === "date";
+  dateBtn.addEventListener("click", () => {
+    diffSortMode = "date";
+    render();
+  });
+  const diffBtn = el("button", { text: "Sort by Differential" });
+  diffBtn.disabled = diffSortMode === "differential";
+  diffBtn.addEventListener("click", () => {
+    diffSortMode = "differential";
+    render();
+  });
+  row.appendChild(dateBtn);
+  row.appendChild(diffBtn);
+  return row;
+}
+
 // mirrors tables.format_scoring_differentials, expanded with every field
-// GHIN's scores.json returns behind a "Columns" picker - only a curated
-// always-visible set shows by default.
+// GHIN's scores.json returns behind a "Columns" picker - a curated set is
+// checked by default, everything else starts hidden.
 function renderScoringDifferentials(container, spread) {
-  const columns = [...ALWAYS_COLUMNS, ...ALL_TOGGLE_COLUMNS];
-  const rows = rankedScoringDifferentialRows(spread).map((r) => ({
-    sectionEnd: r.isSectionEnd,
+  const columns = ALL_TOGGLE_COLUMNS;
+  const rankedRows = rankedScoringDifferentialRows(spread);
+  const orderedRows =
+    diffSortMode === "date"
+      ? [...rankedRows].sort((a, b) => new Date(b.raw.played_at) - new Date(a.raw.played_at))
+      : rankedRows;
+  const rows = orderedRows.map((r) => ({
+    sectionEnd: diffSortMode === "differential" && r.isSectionEnd,
+    highlight: diffSortMode === "date" && r.isScoringRound,
     cells: columns.map((col) => {
       const node = col.render(r, spread);
       if (col.key) node.setAttribute("data-col", col.key);
@@ -378,6 +592,7 @@ function renderScoringDifferentials(container, spread) {
     }),
   }));
   const headers = columns.map((col) => (col.key ? { text: col.label, className: DETAIL_COL } : col.label));
+  container.appendChild(renderDiffSortControls());
   const table = buildTable(`Scoring Differentials (${spread.name})`, headers, rows);
   for (const [i, col] of columns.entries()) {
     if (col.key) table.querySelectorAll("thead th")[i]?.setAttribute("data-col", col.key);
@@ -396,6 +611,14 @@ async function loadGolfers() {
   return Object.values(data.golfers);
 }
 
+// background.js learns this from the URL the first time followed_golfers.json
+// is seen (passively, or from this feature's own active fetch) - null until
+// then, since we have no other way to know the logged-in user's own id.
+async function loadMyGolferId() {
+  const result = await chrome.storage.local.get(STORAGE_KEY);
+  return result[STORAGE_KEY]?.myGolferId || null;
+}
+
 // a golfer captured only via a followed-golfers list (a name, no scores or
 // handicap yet) isn't worth surfacing - only golfers with some real data are.
 function hasAnyData(golfer) {
@@ -403,99 +626,18 @@ function hasAnyData(golfer) {
 }
 
 // manual, global exclusion list for individual rounds - the automatic
-// handicap-index sanity bound (calc.js) catches known GHIN sentinel garbage
-// like the 999 spike, but this covers anything else that looks wrong (a bad
-// differential, a duplicate round, whatever) that no automatic rule would
-// catch. Excluding a round removes it from every calculation - tables and
-// both charts - not just its display. Scores stay in raw storage untouched
-// (visible/restorable from Raw Data) - only this derived view filters them.
-let excludedScoreIds = new Set();
-
-async function loadExclusionPrefs() {
-  const { ghinExcludedScores } = await chrome.storage.local.get("ghinExcludedScores");
-  excludedScoreIds = new Set(ghinExcludedScores || []);
-}
-
-function saveExclusionPrefs() {
-  chrome.storage.local.set({ ghinExcludedScores: [...excludedScoreIds] });
-}
-
-function withExclusions(golfer) {
-  if (!excludedScoreIds.size) return golfer;
-  const scoresById = {};
-  for (const [id, score] of Object.entries(golfer.scoresById)) {
-    if (!excludedScoreIds.has(id)) scoresById[id] = score;
-  }
-  return { ...golfer, scoresById };
-}
-
-function excludeScore(scoreId) {
-  excludedScoreIds.add(String(scoreId));
-  saveExclusionPrefs();
-  render();
-}
-
-function restoreScore(scoreId) {
-  excludedScoreIds.delete(String(scoreId));
-  saveExclusionPrefs();
-  render();
-}
-
-// which golfers show up in the Alternative Handicaps/Statistics/Next Round
-// Helpers/Historical tables - a golfer with enough data can still be hidden
-// from view (e.g. you looked up a friend once and don't want them cluttering
-// the comparison anymore). Stored as the hidden set so newly-captured
-// golfers default to visible without needing an update.
-let hiddenGolferIds = new Set();
-
-async function loadGolferVisibilityPrefs() {
-  const { ghinHiddenGolfers } = await chrome.storage.local.get("ghinHiddenGolfers");
-  hiddenGolferIds = new Set(ghinHiddenGolfers || []);
-}
-
-function saveGolferVisibilityPrefs() {
-  chrome.storage.local.set({ ghinHiddenGolfers: [...hiddenGolferIds] });
-}
-
-const golferMenuBody = el("div", { className: "col-menu-body" });
-
-function buildGolferMenu() {
-  const details = el("details", { className: "col-menu" });
-  details.appendChild(el("summary", { text: "Golfers" }));
-  details.appendChild(golferMenuBody);
-  return details;
-}
-
-// rebuilt on every render (the golfer list grows as you browse), but the
-// wrapping <details> is created once so an open menu doesn't snap shut.
-function updateGolferMenu(spreads) {
-  clearChildren(golferMenuBody);
-  if (!spreads.length) {
-    golferMenuBody.appendChild(el("div", { className: "empty-note", text: "No golfers with enough data yet." }));
-    return;
-  }
-  for (const s of sortedSpreads(spreads)) {
-    const label = el("label", { className: "golfer-menu-item" });
-    const checkbox = el("input", { attrs: { type: "checkbox" } });
-    checkbox.checked = !hiddenGolferIds.has(s.id);
-    checkbox.addEventListener("change", () => {
-      if (checkbox.checked) hiddenGolferIds.delete(s.id);
-      else hiddenGolferIds.add(s.id);
-      saveGolferVisibilityPrefs();
-      render();
-    });
-    label.appendChild(checkbox);
-    label.appendChild(el("span", { text: `${s.name} (${fmt1(s.best8Handicap)})` }));
-    golferMenuBody.appendChild(label);
-  }
-}
+// which single golfer shows up in the Alternative Handicaps/Statistics/Next
+// Round Helpers/Historical tables - same single-select-dropdown pattern as
+// the Scoring Differentials and Charts panels use, rather than a
+// multi-select filter.
+let currentSelectedTopGolferId = null;
 
 function computeAll(golfers) {
   const spreads = [];
   const errors = [];
   for (const g of golfers) {
     if (!hasAnyData(g)) continue;
-    const result = computeHandicapSpread(withExclusions(g));
+    const result = computeHandicapSpread(g);
     if (result.error) errors.push(result.error);
     else spreads.push(result);
   }
@@ -514,17 +656,6 @@ function populateGolferSelect(select, spreads, previousValue) {
 // unlike populateGolferSelect, this lists every golfer with *any* captured
 // data - including ones with too few scores for the handicap tables, since
 // those are exactly who "fetch full history" is useful for.
-function populateRawGolferSelect(select, golfersWithData, previousValue) {
-  clearChildren(select);
-  const sorted = [...golfersWithData].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  for (const g of sorted) {
-    const scoreCount = Object.keys(g.scoresById).length;
-    select.appendChild(el("option", { text: `${g.name || `Golfer ${g.id}`} (${scoreCount} captured)`, attrs: { value: g.id } }));
-  }
-  if (sorted.some((g) => g.id === previousValue)) select.value = previousValue;
-  return select.value || null;
-}
-
 const CSV_HEADERS = [
   "Golfer",
   "GHIN Number",
@@ -586,50 +717,6 @@ function downloadCsv(filename, csvText) {
   URL.revokeObjectURL(url);
 }
 
-// excluded scores stay in raw storage untouched - this looks them back up
-// across every golfer (score ids are globally unique) so they can be
-// reviewed and restored later.
-function renderExcludedScores(golfers) {
-  const holder = document.getElementById("excluded-scores-holder");
-  clearChildren(holder);
-  if (!excludedScoreIds.size) return;
-
-  const rows = [];
-  for (const id of excludedScoreIds) {
-    let found = null;
-    let owner = null;
-    for (const g of golfers) {
-      if (g.scoresById[id]) {
-        found = g.scoresById[id];
-        owner = g;
-        break;
-      }
-    }
-    rows.push({ id, score: found, owner });
-  }
-
-  const table = el("table");
-  table.appendChild(el("caption", { text: `Excluded Rounds (${rows.length})` }));
-  table.appendChild(
-    el("thead", {}, [el("tr", {}, ["Golfer", "Date", "Course", "", ""].map((h) => el("th", { text: h })))])
-  );
-  const tbody = el("tbody");
-  for (const row of rows) {
-    const restoreBtn = el("button", { className: "exclude-btn", text: "Restore" });
-    restoreBtn.addEventListener("click", () => restoreScore(row.id));
-    tbody.appendChild(
-      el("tr", {}, [
-        cell(row.owner?.name || (row.owner ? `Golfer ${row.owner.id}` : "unknown golfer")),
-        cell(row.score?.played_at ?? `score id ${row.id}`),
-        cell(row.score?.course_name ?? "-"),
-        el("td", {}, [restoreBtn]),
-      ])
-    );
-  }
-  table.appendChild(tbody);
-  holder.appendChild(scrollWrap(table));
-}
-
 function renderCsvPreview(golfersWithData) {
   const holder = document.getElementById("csv-preview-holder");
   clearChildren(holder);
@@ -643,37 +730,61 @@ function renderCsvPreview(golfersWithData) {
 
 document.getElementById("csv-btn").addEventListener("click", async () => {
   const golfers = await loadGolfers();
-  const rows = scoresToRows(golfers.filter(hasAnyData));
+  const selected = golfers.filter((g) => String(g.id) === currentSelectedTopGolferId && hasAnyData(g));
+  const rows = scoresToRows(selected);
   downloadCsv(`ghin-scores-${new Date().toISOString().slice(0, 10)}.csv`, buildCsv(CSV_HEADERS, rows));
+});
+
+document.getElementById("csv-all-btn").addEventListener("click", async () => {
+  const golfers = await loadGolfers();
+  const rows = scoresToRows(golfers.filter(hasAnyData));
+  downloadCsv(`ghin-scores-all-${new Date().toISOString().slice(0, 10)}.csv`, buildCsv(CSV_HEADERS, rows));
 });
 
 // pages through scores.json for the selected golfer using the browser's own
 // GHIN.com session - see injected.js. Requires a ghin.com tab to be open,
 // since the request has to come from that page's own context to carry auth.
+// resolved by the GHIN_FETCH_PROGRESS listener below when a given golfer's
+// fetch reports done:true - lets the click handler await one golfer's
+// fetch fully finishing before starting the next, instead of firing all of
+// them at once (which would interleave progress messages and hammer GHIN's
+// API with concurrent year-walks).
+const pendingFetchAllByGolfer = new Map();
+function waitForFetchAllDone(golferId) {
+  return new Promise((resolve) => pendingFetchAllByGolfer.set(golferId, resolve));
+}
+
 document.getElementById("fetch-all-btn").addEventListener("click", async () => {
   const fetchStatus = document.getElementById("fetch-status");
-  const golferId = document.getElementById("fetch-golfer-select").value;
-  if (!golferId) {
-    fetchStatus.textContent = "No golfer selected.";
-    return;
-  }
   const tabs = await chrome.tabs.query({ url: "https://*.ghin.com/*" });
   if (!tabs.length) {
     fetchStatus.textContent = "Open a ghin.com tab first, then try again.";
     return;
   }
-  // when we already know when this golfer's GHIN account was created (from a
-  // captured account_info/search.json response), skip walking back past it.
-  const golfers = await loadGolfers();
-  const golfer = golfers.find((g) => String(g.id) === golferId);
-  const startYear = golfer?.createdAt ? new Date(golfer.createdAt).getFullYear() : undefined;
-
-  fetchStatus.textContent = "Fetching...";
-  try {
-    await chrome.tabs.sendMessage(tabs[0].id, { type: "GHIN_FETCH_ALL", golferId, startYear });
-  } catch {
-    fetchStatus.textContent = "Couldn't reach the ghin.com tab - try reloading it.";
+  const golfers = (await loadGolfers()).filter(hasAnyData);
+  if (!golfers.length) {
+    fetchStatus.textContent = "No golfers captured yet.";
+    return;
   }
+
+  for (const [index, golfer] of golfers.entries()) {
+    const golferId = String(golfer.id);
+    const golferLabel = golfer.name || `Golfer ${golferId}`;
+    // when we already know when this golfer's GHIN account was created (from
+    // a captured account_info/search.json response), skip walking back past it.
+    const startYear = golfer.createdAt ? new Date(golfer.createdAt).getFullYear() : undefined;
+
+    fetchStatus.textContent = `Fetching ${golferLabel} (${index + 1}/${golfers.length})...`;
+    try {
+      const donePromise = waitForFetchAllDone(golferId);
+      await chrome.tabs.sendMessage(tabs[0].id, { type: "GHIN_FETCH_ALL", golferId, startYear });
+      await donePromise;
+    } catch {
+      fetchStatus.textContent = `Couldn't reach the ghin.com tab while fetching ${golferLabel} - try reloading it.`;
+      return;
+    }
+  }
+  fetchStatus.textContent = `Done - fetched full history for ${golfers.length} golfer(s).`;
 });
 
 chrome.runtime.onMessage.addListener((message) => {
@@ -682,16 +793,105 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.error) {
     fetchStatus.textContent = `Fetch failed after ${message.fetched} round(s): ${message.error}`;
   } else if (message.done) {
-    fetchStatus.textContent = `Done - fetched ${message.fetched} round(s) across all years found.`;
+    fetchStatus.textContent = `Done with this golfer - fetched ${message.fetched} round(s) across all years found.`;
   } else {
     fetchStatus.textContent = `Fetching... ${message.fetched} round(s) so far (currently on ${message.year}).`;
   }
+  if (message.done) {
+    const resolve = pendingFetchAllByGolfer.get(message.golferId);
+    if (resolve) {
+      pendingFetchAllByGolfer.delete(message.golferId);
+      resolve();
+    }
+  }
 });
 
-let currentSelectedGolferId = null;
-let currentSelectedFetchGolferId = null;
-let currentSelectedChartGolferId = null;
-let currentSelectedWhatifGolferId = null;
+// unlike fetch-all (which loops golfer-by-golfer FROM the side panel over an
+// already-known list), the followed-golfers list itself is only discovered
+// inside injected.js - so this is one round trip for the whole operation,
+// not one per golfer, and there's only ever one in flight at a time.
+let pendingFollowedAnalysis = null;
+function waitForFollowedAnalysisDone() {
+  return new Promise((resolve) => (pendingFollowedAnalysis = resolve));
+}
+
+document.getElementById("analyze-followed-btn").addEventListener("click", async () => {
+  const fetchStatus = document.getElementById("fetch-status");
+  const tabs = await chrome.tabs.query({ url: "https://*.ghin.com/*" });
+  if (!tabs.length) {
+    fetchStatus.textContent = "Open a ghin.com tab first, then try again.";
+    return;
+  }
+  const myGolferId = await loadMyGolferId();
+  if (!myGolferId) {
+    fetchStatus.textContent = 'Visit your "Followed Golfers" page on GHIN.com once so the extension learns your account, then try again.';
+    return;
+  }
+  fetchStatus.textContent = "Looking up your followed golfers...";
+  try {
+    const donePromise = waitForFollowedAnalysisDone();
+    await chrome.tabs.sendMessage(tabs[0].id, { type: "GHIN_ANALYZE_FOLLOWED", myGolferId });
+    await donePromise;
+  } catch {
+    fetchStatus.textContent = "Couldn't reach the ghin.com tab - try reloading it.";
+  }
+});
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type !== "GHIN_FOLLOWED_PROGRESS") return;
+  const fetchStatus = document.getElementById("fetch-status");
+  if (message.error) {
+    fetchStatus.textContent = `Analyze All Followed Golfers failed: ${message.error}`;
+  } else if (message.done) {
+    fetchStatus.textContent = `Done - analyzed ${message.total} followed golfer(s).`;
+  } else {
+    fetchStatus.textContent = `Analyzing ${message.currentName} (${message.completed + 1}/${message.total})...`;
+  }
+  if (message.done && pendingFollowedAnalysis) {
+    pendingFollowedAnalysis();
+    pendingFollowedAnalysis = null;
+  }
+});
+
+// Scoring Differentials, Charts, and Next Round Helpers no longer have their
+// own per-panel golfer pickers - they all follow currentSelectedTopGolferId.
+let compareAllGolfers = false;
+
+// background.js only retries the automatic name backfill from inside
+// handleCapture - i.e. only when a *new* network response comes in. Just
+// opening/refreshing the side panel captures nothing new, so a golfer whose
+// very first backfill attempt failed silently (no ghin.com tab yet, auth
+// header not snooped yet) could stay nameless indefinitely until the user
+// happened to trigger a fresh capture themselves (e.g. visiting GHIN's own
+// golfer lookup page). The side panel now retries independently on its own
+// cooldown instead of only reacting to captures.
+const nameBackfillAttempts = new Map(); // golferId -> last attempt timestamp
+const NAME_BACKFILL_RETRY_MS = 10000;
+
+async function retryNameBackfillIfNeeded(golfersWithData) {
+  const now = Date.now();
+  const needsName = golfersWithData.filter((g) => {
+    if (g.name) return false;
+    const last = nameBackfillAttempts.get(String(g.id));
+    return !last || now - last > NAME_BACKFILL_RETRY_MS;
+  });
+  if (!needsName.length) return;
+  const tabs = await chrome.tabs.query({ url: "https://*.ghin.com/*" });
+  console.log(
+    "[GHIN-EXT] retryNameBackfillIfNeeded: golfers needing a name:",
+    needsName.map((g) => g.id),
+    "ghin.com tabs found:",
+    tabs.length
+  );
+  if (!tabs.length) return;
+  for (const g of needsName) {
+    nameBackfillAttempts.set(String(g.id), now);
+    chrome.tabs
+      .sendMessage(tabs[0].id, { type: "GHIN_FETCH_NAME", golferId: String(g.id) })
+      .then(() => console.log("[GHIN-EXT] GHIN_FETCH_NAME message delivered for", g.id))
+      .catch((e) => console.warn("[GHIN-EXT] GHIN_FETCH_NAME message failed for", g.id, e));
+  }
+}
 
 async function render() {
   const golfers = await loadGolfers();
@@ -699,6 +899,7 @@ async function render() {
   const { spreads, errors } = computeAll(golfers);
 
   const golfersWithData = golfers.filter(hasAnyData);
+  retryNameBackfillIfNeeded(golfersWithData);
   const status = document.getElementById("status");
   const golferWord = golfersWithData.length === 1 ? "golfer" : "golfers";
   status.textContent = `${golfersWithData.length} ${golferWord} with data, ${spreads.length} with enough for tables`;
@@ -711,16 +912,21 @@ async function render() {
     for (const e of errors) rawErrors.appendChild(el("div", { className: "empty-note", text: `- ${e}` }));
   }
 
-  renderExcludedScores(golfers);
-  renderCsvPreview(golfersWithData);
-  currentSelectedFetchGolferId = populateRawGolferSelect(
-    document.getElementById("fetch-golfer-select"),
-    golfersWithData,
-    currentSelectedFetchGolferId
+  currentSelectedTopGolferId = populateGolferSelect(
+    document.getElementById("golfer-visibility-select"),
+    spreads,
+    currentSelectedTopGolferId
   );
+  const selectedSpread = spreads.find((s) => s.id === currentSelectedTopGolferId) || null;
+  const selectedGolfer = selectedSpread ? golfersById[selectedSpread.id] : null;
+  const selectedSpreads = selectedSpread ? [selectedSpread] : [];
+  // Compare only widens the Alternative Handicaps tab (Alt Handicaps,
+  // Statistics, Streaks, Historical) to every golfer at once - Next Round
+  // Helpers, Scoring Differentials, Charts, and Raw Data always stay scoped
+  // to the single golfer picked up top.
+  const altVisibleSpreads = compareAllGolfers ? spreads : selectedSpreads;
 
-  updateGolferMenu(spreads);
-  const visibleSpreads = spreads.filter((s) => !hiddenGolferIds.has(s.id));
+  renderCsvPreview(selectedGolfer && hasAnyData(selectedGolfer) ? [selectedGolfer] : []);
 
   const altPanel = document.getElementById("panel-alt");
   const nextPanel = document.getElementById("next-table-holder");
@@ -731,96 +937,142 @@ async function render() {
     const note = "Browse GHIN.com (your dashboard, score history, and followed golfers) to capture data.";
     altPanel.appendChild(el("div", { className: "empty-note", text: note }));
     nextPanel.appendChild(el("div", { className: "empty-note", text: note }));
-  } else if (!visibleSpreads.length) {
-    const note = "All golfers are hidden - use the Golfers menu above to show one.";
-    altPanel.appendChild(el("div", { className: "empty-note", text: note }));
-    nextPanel.appendChild(el("div", { className: "empty-note", text: note }));
   } else {
-    renderAlternativeHandicaps(altPanel, visibleSpreads);
-    renderStatistics(altPanel, visibleSpreads);
-    renderHistorical(altPanel, visibleSpreads);
-    renderNextRoundHelpers(nextPanel, visibleSpreads);
+    altPanel.appendChild(renderCompareToggle());
+    renderAlternativeHandicaps(altPanel, altVisibleSpreads);
+    renderStatistics(altPanel, altVisibleSpreads);
+    renderStreakDetailsSection(altPanel, altVisibleSpreads);
+    renderHistorical(altPanel, altVisibleSpreads);
+    renderNextRoundHelpers(nextPanel, selectedSpreads);
   }
 
-  currentSelectedGolferId = populateGolferSelect(document.getElementById("golfer-select"), spreads, currentSelectedGolferId);
-  renderDiffPanel(spreads);
-
-  currentSelectedChartGolferId = populateGolferSelect(
-    document.getElementById("chart-golfer-select"),
-    spreads,
-    currentSelectedChartGolferId
-  );
-  renderChartsPanel(spreads, golfersById);
-
-  currentSelectedWhatifGolferId = populateGolferSelect(
-    document.getElementById("whatif-golfer-select"),
-    spreads,
-    currentSelectedWhatifGolferId
-  );
+  renderDiffPanel(selectedSpread);
+  renderChartsPanel(selectedSpread, golfersById);
 }
 
-function renderDiffPanel(spreads) {
+function renderCompareToggle() {
+  const checkbox = el("input", { attrs: { type: "checkbox" } });
+  checkbox.checked = compareAllGolfers;
+  checkbox.addEventListener("change", () => {
+    compareAllGolfers = checkbox.checked;
+    render();
+  });
+  return el("div", { className: "diff-controls compare-toggle-row" }, [
+    el("label", { className: "checkbox-label" }, [checkbox, el("span", { text: "Compare all golfers" })]),
+  ]);
+}
+
+function renderDiffPanel(spread) {
   const holder = document.getElementById("diff-table-holder");
   clearChildren(holder);
-  const select = document.getElementById("golfer-select");
-  if (!spreads.length) {
+  if (!spread) {
     holder.appendChild(el("div", { className: "empty-note", text: "No golfer has enough captured scores yet." }));
     return;
   }
-  const spread = spreads.find((s) => s.id === select.value) || spreads[0];
   renderScoringDifferentials(holder, spread);
 }
 
-// mirrors the user's request: handicap over time, and differentials over
-// time mapped against handicap over time. Uses every captured score, not
-// just the 20 used for handicap math, so the trend line has more history.
-function renderChartsPanel(spreads, golfersById) {
+// toggle state lives here (in JS), not on persistent DOM checkboxes - each
+// chart's controls are rebuilt fresh right above it on every render, so a
+// checkbox bound once at load time would go stale the moment its element
+// gets replaced.
+let chartShowDifferential = true;
+let chartShowHandicap = true;
+let chartShowUnadjusted9Hole = false;
+
+async function rerenderChartsPanel() {
+  const golfers = await loadGolfers();
+  const golfersById = Object.fromEntries(golfers.map((g) => [String(g.id), g]));
+  const { spreads } = computeAll(golfers);
+  const spread = spreads.find((s) => s.id === currentSelectedTopGolferId) || null;
+  renderChartsPanel(spread, golfersById);
+}
+
+function chartCheckboxRow(options) {
+  const row = el("div", { className: "diff-controls chart-toggle-row" });
+  for (const { checked, text, onChange } of options) {
+    const checkbox = el("input", { attrs: { type: "checkbox" } });
+    checkbox.checked = checked;
+    checkbox.addEventListener("change", () => {
+      onChange(checkbox.checked);
+      rerenderChartsPanel();
+    });
+    row.appendChild(el("label", { className: "checkbox-label" }, [checkbox, el("span", { text })]));
+  }
+  return row;
+}
+
+// two charts: scoring differentials vs handicap index over time (each
+// series independently toggleable), and 9-hole vs 18-hole differentials
+// (so you can tell whether you're actually playing to a different level
+// depending on hole count). Uses every captured score by default, not just
+// the 20 used for handicap math, so the trend has more history than the
+// tables do. Each chart's toggles sit directly above it, not grouped
+// together at the top of the panel.
+function renderChartsPanel(spread, golfersById) {
   const holder = document.getElementById("charts-holder");
   clearChildren(holder);
-  const select = document.getElementById("chart-golfer-select");
-  if (!spreads.length) {
+  if (!spread) {
     holder.appendChild(el("div", { className: "empty-note", text: "No golfer has enough captured scores yet." }));
     return;
   }
-  const spread = spreads.find((s) => s.id === select.value) || spreads[0];
   const golfer = golfersById[spread.id];
-  const series = buildTimeSeries(withExclusions(golfer));
+  const range = document.getElementById("chart-range-select").value;
+  const rangeLabel = { last20: "Last 20 Rounds", calendarYear: "Calendar Year", allTime: "All Time" }[range];
 
-  renderLineChart(holder, {
-    title: `Handicap Index Over Time (${spread.name})`,
-    dates: series.dates,
-    values: series.handicaps,
-    seriesLabel: "Handicap Index",
-  });
+  // --- chart 1: scoring differentials vs handicap index ---
+  const series = buildTimeSeries(golfer, range);
+  holder.appendChild(
+    chartCheckboxRow([
+      { checked: chartShowDifferential, text: "Differential", onChange: (v) => (chartShowDifferential = v) },
+      { checked: chartShowHandicap, text: "Handicap Index", onChange: (v) => (chartShowHandicap = v) },
+    ])
+  );
   renderComboChart(holder, {
-    title: `Scoring Differentials vs Handicap Index (${spread.name})`,
+    title: `Scoring Differentials vs Handicap Index (${spread.name}, ${rangeLabel})`,
     dates: series.dates,
     barValues: series.differentials,
     barLabel: "Differential",
     lineValues: series.handicaps,
     lineLabel: "Handicap Index",
+    showBars: chartShowDifferential,
+    showLine: chartShowHandicap,
+  });
+
+  // --- chart 2: 9-hole vs 18-hole differentials ---
+  const holeTypeSeries = buildHoleTypeSeries(golfer, range);
+  if (!holeTypeSeries.dates.length) {
+    holder.appendChild(el("div", { className: "empty-note", text: `No rounds in this range (${rangeLabel}).` }));
+    return;
+  }
+  holder.appendChild(
+    chartCheckboxRow([
+      {
+        checked: chartShowUnadjusted9Hole,
+        text: "Show unadjusted 9-hole differentials",
+        onChange: (v) => (chartShowUnadjusted9Hole = v),
+      },
+    ])
+  );
+  const holeTypeChartSeries = [
+    { values: holeTypeSeries.nineHoleDifferentials, label: "9-Hole", color: CHART_COLORS.series1 },
+    { values: holeTypeSeries.eighteenHoleDifferentials, label: "18-Hole", color: CHART_COLORS.series2 },
+  ];
+  if (chartShowUnadjusted9Hole) {
+    holeTypeChartSeries.push({
+      values: holeTypeSeries.nineHoleUnadjustedDifferentials,
+      label: "9-Hole (Unadjusted)",
+      color: CHART_COLORS.series3,
+    });
+  }
+  renderMultiLineChart(holder, {
+    title: `9-Hole vs 18-Hole Differentials (${spread.name}, ${rangeLabel})`,
+    dates: holeTypeSeries.dates,
+    series: holeTypeChartSeries,
   });
 }
 
-document.getElementById("golfer-select").addEventListener("change", async () => {
-  currentSelectedGolferId = document.getElementById("golfer-select").value;
-  const golfers = await loadGolfers();
-  const { spreads } = computeAll(golfers);
-  renderDiffPanel(spreads);
-});
-
-
-document.getElementById("chart-golfer-select").addEventListener("change", async () => {
-  currentSelectedChartGolferId = document.getElementById("chart-golfer-select").value;
-  const golfers = await loadGolfers();
-  const golfersById = Object.fromEntries(golfers.map((g) => [String(g.id), g]));
-  const { spreads } = computeAll(golfers);
-  renderChartsPanel(spreads, golfersById);
-});
-
-document.getElementById("whatif-golfer-select").addEventListener("change", () => {
-  currentSelectedWhatifGolferId = document.getElementById("whatif-golfer-select").value;
-});
+document.getElementById("chart-range-select").addEventListener("change", rerenderChartsPanel);
 
 // --- "What If?" round simulator ---
 // Course search/tee-lookup response shapes are unverified (GHIN gave no
@@ -1130,7 +1382,7 @@ async function selectWhatifCourse(course) {
 
   status.textContent = "Loading tee details...";
 
-  const golferId = document.getElementById("whatif-golfer-select").value;
+  const golferId = currentSelectedTopGolferId;
   const playedAt = new Date().toISOString().slice(0, 10);
 
   try {
@@ -1220,7 +1472,7 @@ document.getElementById("whatif-search-btn").addEventListener("click", async () 
   document.getElementById("whatif-course-title").classList.add("hidden");
   clearChildren(document.getElementById("whatif-result"));
   clearChildren(document.getElementById("whatif-tables-holder"));
-  const golferId = document.getElementById("whatif-golfer-select").value;
+  const golferId = currentSelectedTopGolferId;
   try {
     const [data, originCoords] = await Promise.all([
       sendWhatifApiRequest({ type: "GHIN_SEARCH_COURSES", query }),
@@ -1248,7 +1500,7 @@ document.getElementById("whatif-calculate-btn").addEventListener("click", async 
     resultHolder.appendChild(el("div", { className: "empty-note", text: "Pick a tee and enter a score first." }));
     return;
   }
-  const golferId = document.getElementById("whatif-golfer-select").value;
+  const golferId = currentSelectedTopGolferId;
   const golfers = await loadGolfers();
   const { spreads } = computeAll(golfers);
   const spread = spreads.find((s) => s.id === golferId);
@@ -1266,13 +1518,6 @@ document.getElementById("clear-btn").addEventListener("click", () => {
   chrome.runtime.sendMessage({ type: "GHIN_CLEAR" });
 });
 
-const SETTINGS_KEY = "ghinSettings";
-
-(async () => {
-  const { [SETTINGS_KEY]: settings } = await chrome.storage.local.get(SETTINGS_KEY);
-  document.getElementById("keep-open-toggle").checked = settings?.keepOpenEverywhere ?? false;
-})();
-
 // debug-only UI (the raw API response viewer) is only useful while
 // developing this extension against unverified GHIN endpoints - hide it
 // once this is ever actually distributed via the Chrome Web Store.
@@ -1281,11 +1526,6 @@ const SETTINGS_KEY = "ghinSettings";
 chrome.management.getSelf((info) => {
   if (info.installType === "development") return;
   for (const node of document.querySelectorAll(".dev-only")) node.style.display = "none";
-});
-
-document.getElementById("keep-open-toggle").addEventListener("change", async (e) => {
-  const { [SETTINGS_KEY]: settings } = await chrome.storage.local.get(SETTINGS_KEY);
-  await chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings, keepOpenEverywhere: e.target.checked } });
 });
 
 for (const btn of document.querySelectorAll(".tab-btn")) {
@@ -1301,9 +1541,22 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes[STORAGE_KEY]) render();
 });
 
+// native <details> only closes on a second click of its own <summary> - this
+// adds the click-outside-to-close behavior a dropdown is expected to have,
+// for the Columns/Golfers popups (anything using the .col-menu pattern).
+document.addEventListener("click", (e) => {
+  for (const details of document.querySelectorAll("details.col-menu[open]")) {
+    if (!details.contains(e.target)) details.removeAttribute("open");
+  }
+});
+
+document.getElementById("golfer-visibility-select").addEventListener("change", () => {
+  currentSelectedTopGolferId = document.getElementById("golfer-visibility-select").value;
+  render();
+});
+
 (async () => {
-  await Promise.all([loadColumnPrefs(), loadGolferVisibilityPrefs(), loadExclusionPrefs()]);
+  await loadColumnPrefs();
   document.getElementById("col-menu-holder").appendChild(buildColumnMenu());
-  document.getElementById("golfer-menu-holder").appendChild(buildGolferMenu());
   render();
 })();

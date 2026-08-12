@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "GHIN Handicap Tables",
   "version": "1.0.0",
-  "description": "Reads GHIN.com's own network responses and renders the handicap-spread tables (Alternative Handicaps, Statistics, Next Round Helpers, Historical, Scoring Differentials) in a side panel, with an optional full-history fetch using your logged-in session.",
-  "permissions": ["storage", "sidePanel", "tabs", "windows"],
+  "description": "Alternative handicap tables, streaks, and charts for GHIN.com scores, shown in a side panel using your own logged-in session.",
+  "permissions": ["storage", "sidePanel"],
   "host_permissions": ["https://*.ghin.com/*"],
   "background": {
     "service_worker": "background.js"

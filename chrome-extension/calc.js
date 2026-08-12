@@ -65,12 +65,30 @@ function isValidHandicapIndex(value) {
 }
 
 // handicap_history.json (the endpoint ghin.py reads the live handicap from)
-// doesn't fire on every GHIN.com page. Every posted score also carries the
-// golfer's handicap_index at the time it posted, so fall back to whichever
-// captured score has the highest order_number when no direct capture exists.
-function deriveHandicapFallback(scoresById) {
+// doesn't fire on every GHIN.com page. A posted score's own `handicap_index`
+// field is NOT the handicap that round produced - it's the golfer's index at
+// the time they played that round (what their course handicap was based on
+// that day), so it goes stale the moment a newer round changes the number.
+// GHIN's scores.json response separately flags which of the current
+// window's rounds actually count (`used: true`) - averaging just those
+// scores' differentials is literally what the live Handicap Index is made
+// of, so that's the correct fallback, not a single per-round snapshot.
+// A `used` round can be a 9-hole round, where the raw `differential` field
+// is the small 9-hole-only number, not the scaled 18-hole-equivalent value
+// GHIN actually sums for this - effectiveDifferential() gives that.
+// IMPORTANT: takes the already-windowed 20 most recent scores, not the raw
+// scoresById map - the extension can accumulate way more than 20 for a
+// golfer just from browsing, and an old round outside the current window
+// can still carry a stale `used: true` from a past revision.
+function deriveHandicapFallback(scores) {
+  const usedDifferentials = scores.filter((s) => s?.used === true).map(effectiveDifferential).filter((d) => typeof d === "number");
+  if (usedDifferentials.length) return round1(mean(usedDifferentials));
+
+  // no `used` flags captured yet (e.g. only the paginated scores endpoint
+  // has been seen) - fall back to the most recently posted round's own
+  // index as a rough approximation, better than nothing.
   let best = null;
-  for (const score of Object.values(scoresById)) {
+  for (const score of scores) {
     if (!isValidHandicapIndex(score?.handicap_index) || score?.order_number == null) continue;
     if (!best || score.order_number > best.order_number) best = score;
   }
@@ -80,14 +98,14 @@ function deriveHandicapFallback(scoresById) {
 // mirrors GHIN.get_handicap_spread. Returns null (with a `reason`) when
 // there isn't enough captured data yet to compute the spread.
 function computeHandicapSpread(golfer) {
-  const handicap = isValidHandicapIndex(golfer.handicap) ? golfer.handicap : deriveHandicapFallback(golfer.scoresById);
-  if (handicap == null) {
-    return { error: `no handicap captured yet for ${golfer.name || golfer.id}` };
-  }
   // GHIN scores handicaps off the 20 most recent rounds - the extension may
   // have accumulated more than 20 in scoresById just from browsing multiple
   // pages, so cap to the most recent 20 here to match GHIN's own math.
   const scores = orderedScores(golfer.scoresById).slice(0, 20);
+  const handicap = isValidHandicapIndex(golfer.handicap) ? golfer.handicap : deriveHandicapFallback(scores);
+  if (handicap == null) {
+    return { error: `no handicap captured yet for ${golfer.name || golfer.id}` };
+  }
   if (scores.length < 9) {
     return { error: `only ${scores.length} score(s) captured for ${golfer.name || golfer.id} (need >= 9)` };
   }
@@ -120,6 +138,7 @@ function computeHandicapSpread(golfer) {
   const drop4HighLow = round1(mean(differential.slice(4, -4)));
 
   const carryPercentage = differentialDistribution(differential.slice(0, 8), handicap);
+  const best8Differentials = differential.slice(0, 8);
 
   const next4RoundsToFallOff = fallingOffRounds.map((x) => ({
     value: round1(x),
@@ -144,6 +163,72 @@ function computeHandicapSpread(golfer) {
   const lowestScore = stats?.lowestScore ?? (allAdjustedGross.length ? Math.min(...allAdjustedGross) : null);
   const averageScore = stats?.average ?? (allAdjustedGross.length ? round1(mean(allAdjustedGross)) : null);
 
+  // GHIN's dashboard computes "Low HI" live server-side; golfer.lowHandicap
+  // here is a snapshot from whichever account_info/search.json capture
+  // happened to fire last, which can go stale the moment a new low round
+  // posts after that capture and before the next one. Every captured
+  // score's handicap_index is a real historical reading though, so take
+  // the lowest of: the captured snapshot, every observed reading, and the
+  // current handicap - whichever is actually lowest wins, self-correcting
+  // as more data gets captured rather than trusting one frozen field.
+  let lowHandicap = golfer.lowHandicap;
+  let lowHandicapDate = golfer.lowHandicapDate;
+  for (const s of allCapturedScores) {
+    if (isValidHandicapIndex(s.handicap_index) && (lowHandicap == null || s.handicap_index < lowHandicap)) {
+      lowHandicap = s.handicap_index;
+      lowHandicapDate = s.played_at;
+    }
+  }
+
+  // "hot streak" = consecutive scoring rounds (most recent first); "cold
+  // streak" is the exact mirror. "Scoring round" only means something
+  // relative to the specific 20-round window differential[7] came from -
+  // within any 20-round window there are, by definition, exactly 8 rounds
+  // in the best 8 and 12 that aren't, so a hot streak can never exceed 8
+  // and a cold streak can never exceed 12. Applying today's threshold to a
+  // golfer's *entire* history (rounds from years ago, at a very different
+  // skill level) would blow past that ceiling for no meaningful reason -
+  // so this stays scoped to the current 20-round window (`scores`/
+  // `differentialTimeOrdered`, already computed above), same as every
+  // other "scoring round" concept in this function.
+  const scoringThreshold = differential[7];
+
+  function computeStreak(isStreakRound) {
+    let current = 0;
+    for (const d of differentialTimeOrdered) {
+      if (isStreakRound(d)) current++;
+      else break;
+    }
+    let longest = 0;
+    let bestRounds = [];
+    let run = 0;
+    let runStart = -1;
+    for (let i = 0; i < differentialTimeOrdered.length; i++) {
+      if (isStreakRound(differentialTimeOrdered[i])) {
+        if (run === 0) runStart = i;
+        run++;
+        if (run > longest) {
+          longest = run;
+          // oldest-to-newest within the streak, easier to read chronologically
+          bestRounds = scores.slice(runStart, i + 1).reverse();
+        }
+      } else {
+        run = 0;
+      }
+    }
+    return { current, longest, bestRounds };
+  }
+
+  const hotStreak = computeStreak((d) => d <= scoringThreshold);
+  const hotStreakCurrent = hotStreak.current;
+  const hotStreakLongest = hotStreak.longest;
+  const hotStreakBestRounds = hotStreak.bestRounds;
+
+  const coldStreak = computeStreak((d) => d > scoringThreshold);
+  const coldStreakCurrent = coldStreak.current;
+  const coldStreakLongest = coldStreak.longest;
+  const coldStreakBestRounds = coldStreak.bestRounds;
+
   return {
     id: golfer.id,
     name: golfer.name || `Golfer ${golfer.id}`,
@@ -164,20 +249,30 @@ function computeHandicapSpread(golfer) {
     drop4HighAndLowHandicap: drop4HighLow,
     handicapStdDev: round1(stdevSample(differential)),
     differentialRange: round1(differential[differential.length - 1] - differential[0]),
+    differentialMin: differential[0],
+    differentialMax: differential[differential.length - 1],
+    differentialAverage: all20Handicap,
     carryPercentage,
+    best8Differentials,
     worstScoredDifferential: differential[7],
     worstPotentialHandicap,
     differentialToLowerByPointFive,
     differentialToLowerByOne,
     next4RoundsToFallOff,
-    lowHandicap: golfer.lowHandicap != null ? golfer.lowHandicap : handicap,
-    lowHandicapDate: golfer.lowHandicapDate || new Date().toISOString().slice(0, 10),
+    lowHandicap: lowHandicap != null && lowHandicap < handicap ? lowHandicap : handicap,
+    lowHandicapDate: (lowHandicap != null && lowHandicap < handicap ? lowHandicapDate : null) || new Date().toISOString().slice(0, 10),
     totalScores,
     highestScore,
     lowestScore,
     averageScore,
     consistencyScoreBest8All20: (handicap / all20Handicap) * 100,
     consistencyScoreBest8Worst12: (handicap / worst12Handicap) * 100,
+    hotStreakCurrent,
+    hotStreakLongest,
+    hotStreakBestRounds,
+    coldStreakCurrent,
+    coldStreakLongest,
+    coldStreakBestRounds,
     // the raw, unmodified score objects (same order/length as the arrays
     // above) - kept around so the Scoring Differentials column picker can
     // show literally any field GHIN's API returned, not just the curated
@@ -268,23 +363,42 @@ function rankedScoringDifferentialRows(spread) {
   const scores = spread.rawScores;
   const effective = scores.map(effectiveDifferential);
   const rankedIndexes = scores.map((_, i) => i).sort((a, b) => effective[a] - effective[b]);
-  return rankedIndexes.map((i, rank) => ({
-    rank: rank + 1,
-    raw: scores[i],
-    isSectionEnd: rank + 1 === 8,
-  }));
+  return rankedIndexes.map((i, rank) => {
+    const raw = scores[i];
+    // GHIN flags which rounds actually count toward the current handicap
+    // (`used`) directly on the score record - prefer that over our own
+    // best-8-by-rank guess whenever it's been captured (it's not always
+    // exactly "top 8" once fewer than 20 rounds are posted, per the WHS
+    // number-of-scores-to-use table).
+    const isScoringRound = typeof raw.used === "boolean" ? raw.used : rank + 1 <= 8;
+    return { rank: rank + 1, raw, isSectionEnd: rank + 1 === 8, isScoringRound };
+  });
 }
 
 // Time-series data for the charts: unlike the handicap-spread calc, this
-// uses every captured score (not capped to 20) - more browsing means a
-// longer trend, which is a feature here rather than a mismatch with GHIN's
-// own math. `handicap_index` is the golfer's handicap index at the moment
-// each round posted, so plotting it over played_at approximates a handicap
-// history even though handicap_history.json itself is never captured.
-function buildTimeSeries(golfer) {
-  const scores = Object.values(golfer.scoresById)
+// uses every captured score by default (not capped to 20) - more browsing
+// means a longer trend, which is a feature here rather than a mismatch with
+// GHIN's own math. `handicap_index` is the golfer's handicap index at the
+// moment each round posted, so plotting it over played_at approximates a
+// handicap history even though handicap_history.json itself is never
+// captured. `range` narrows the window: "last20" (most recent 20 rounds,
+// matching the handicap-math window), "calendarYear" (this calendar year
+// only), or "allTime" (default, everything captured).
+function scoresInRange(golfer, range) {
+  let scores = Object.values(golfer.scoresById)
     .filter((s) => s.played_at)
     .sort((a, b) => new Date(a.played_at) - new Date(b.played_at));
+  if (range === "last20") {
+    scores = scores.slice(-20);
+  } else if (range === "calendarYear") {
+    const currentYear = new Date().getFullYear();
+    scores = scores.filter((s) => new Date(s.played_at).getFullYear() === currentYear);
+  }
+  return scores;
+}
+
+function buildTimeSeries(golfer, range = "allTime") {
+  const scores = scoresInRange(golfer, range);
   return {
     dates: scores.map((s) => s.played_at),
     differentials: scores.map((s) => {
@@ -292,5 +406,20 @@ function buildTimeSeries(golfer) {
       return value == null ? null : value;
     }),
     handicaps: scores.map((s) => (isValidHandicapIndex(s.handicap_index) ? s.handicap_index : null)),
+  };
+}
+
+// same date axis as buildTimeSeries, but split into two parallel series by
+// hole count instead of one combined differential - each round only has a
+// value in whichever series matches its number_of_holes, null in the other.
+function buildHoleTypeSeries(golfer, range = "allTime") {
+  const scores = scoresInRange(golfer, range);
+  return {
+    dates: scores.map((s) => s.played_at),
+    nineHoleDifferentials: scores.map((s) => (s.number_of_holes === 9 ? effectiveDifferential(s) : null)),
+    eighteenHoleDifferentials: scores.map((s) => (s.number_of_holes === 18 ? effectiveDifferential(s) : null)),
+    // pre-adjustment (PCC) base differential - identical to the effective
+    // value whenever PCC was 0 for that round, but a separate line when it wasn't.
+    nineHoleUnadjustedDifferentials: scores.map((s) => (s.number_of_holes === 9 ? s.unadjusted_differential ?? null : null)),
   };
 }

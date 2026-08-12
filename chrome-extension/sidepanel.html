@@ -9,15 +9,29 @@
 
 <body>
   <header>
-    <h1>GHIN Handicap Tables</h1>
-    <div id="status" class="status"></div>
-    <div id="golfer-menu-holder"></div>
-    <label class="checkbox-label" title="By default this panel closes automatically when you leave ghin.com">
-      <input type="checkbox" id="keep-open-toggle" />
-      Keep open on other sites
-    </label>
-    <button id="clear-btn" title="Clear captured data">Clear data</button>
+    <div class="header-row">
+      <h1>GHIN Handicap Tables</h1>
+      <div id="status" class="status"></div>
+    </div>
+    <div class="header-row">
+      <label for="golfer-visibility-select">Golfer:</label>
+      <select id="golfer-visibility-select"></select>
+      <button
+        id="fetch-all-btn"
+        title="Page through GHIN's API using your logged-in session to pull every captured round for every golfer, not just the recent ones"
+      >
+        Fetch full history (all golfers)
+      </button>
+      <button
+        id="analyze-followed-btn"
+        title="Pull account info, handicap history, and recent scores for every golfer you follow on GHIN.com - the same data you'd get by visiting each of their pages"
+      >
+        Analyze All Followed Golfers
+      </button>
+      <button id="clear-btn" title="Clear captured data">Clear data</button>
+    </div>
   </header>
+  <div id="fetch-status" class="status fetch-status"></div>
 
   <nav id="tabs" class="tabs">
     <button class="tab-btn active" data-tab="alt">Alternative Handicaps</button>
@@ -33,10 +47,6 @@
       <div id="next-table-holder"></div>
       <div class="whatif-panel">
         <h3>What If? — Simulate Your Next Round</h3>
-        <div class="diff-controls">
-          <label for="whatif-golfer-select">Golfer:</label>
-          <select id="whatif-golfer-select"></select>
-        </div>
         <div class="diff-controls">
           <input type="text" id="whatif-course-search" placeholder="Search courses (e.g. &quot;pebble&quot;)" />
           <button id="whatif-search-btn">Search</button>
@@ -64,30 +74,26 @@
     </section>
     <section id="panel-diff" class="panel">
       <div class="diff-controls">
-        <label for="golfer-select">Golfer:</label>
-        <select id="golfer-select"></select>
         <div id="col-menu-holder"></div>
       </div>
       <div id="diff-table-holder"></div>
     </section>
     <section id="panel-charts" class="panel">
       <div class="diff-controls">
-        <label for="chart-golfer-select">Golfer:</label>
-        <select id="chart-golfer-select"></select>
+        <label for="chart-range-select">Range:</label>
+        <select id="chart-range-select">
+          <option value="last20">Last 20 Rounds</option>
+          <option value="calendarYear">Calendar Year</option>
+          <option value="allTime" selected>All Time</option>
+        </select>
       </div>
       <div id="charts-holder"></div>
     </section>
     <section id="panel-raw" class="panel">
       <div id="raw-errors"></div>
-      <div id="excluded-scores-holder"></div>
       <div class="diff-controls">
-        <label for="fetch-golfer-select">Golfer:</label>
-        <select id="fetch-golfer-select"></select>
-        <button id="fetch-all-btn">Fetch full history</button>
-      </div>
-      <div id="fetch-status" class="status fetch-status"></div>
-      <div class="diff-controls">
-        <button id="csv-btn">Download captured scores as CSV</button>
+        <button id="csv-btn">Download selected golfer's scores as CSV</button>
+        <button id="csv-all-btn">Export All (every golfer)</button>
       </div>
       <div id="csv-preview-holder"></div>
     </section>

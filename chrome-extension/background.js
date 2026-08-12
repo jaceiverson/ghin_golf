@@ -2,66 +2,18 @@
 // content-bridge.js and merges them into chrome.storage.local under
 // "ghinData". The side panel reads/renders from that same key.
 
+// openPanelOnActionClick lets the action icon toggle the panel open/closed
+// normally on every domain - a per-tab enabled/disabled scheme (tried
+// previously to auto-close off ghin.com) broke that toggle on non-ghin
+// tabs, since Chrome only seems to treat the icon click as an open<->close
+// toggle when the panel is enabled for the current tab. Chrome has no
+// public API for an extension to force-close an already-open panel, so
+// there isn't a way to have both "auto-closes elsewhere" and "icon reliably
+// toggles everywhere" - this keeps the toggle, which is the more broadly
+// useful of the two.
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
 const STORAGE_KEY = "ghinData";
-const SETTINGS_KEY = "ghinSettings";
-
-// --- auto-close the panel off ghin.com, unless the user opted to keep it open everywhere ---
-
-function isGhinUrl(url) {
-  return /^https:\/\/([^/]+\.)?ghin\.com\//.test(url || "");
-}
-
-async function updatePanelForTab(tab) {
-  if (!tab || tab.id == null) return;
-  const { [SETTINGS_KEY]: settings } = await chrome.storage.local.get(SETTINGS_KEY);
-  const keepOpenEverywhere = settings?.keepOpenEverywhere ?? false;
-  const shouldEnable = keepOpenEverywhere || isGhinUrl(tab.url);
-  console.log("[GHIN-EXT] updatePanelForTab", { tabId: tab.id, url: tab.url, keepOpenEverywhere, shouldEnable });
-  try {
-    if (shouldEnable) {
-      await chrome.sidePanel.setOptions({ tabId: tab.id, path: "sidepanel.html", enabled: true });
-    } else {
-      await chrome.sidePanel.setOptions({ tabId: tab.id, enabled: false });
-    }
-  } catch (e) {
-    console.warn("[GHIN-EXT] setOptions failed for tab", tab.id, e);
-  }
-}
-
-chrome.tabs.onActivated.addListener(({ tabId }) => {
-  chrome.tabs.get(tabId).then(updatePanelForTab).catch(() => {});
-});
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.url) updatePanelForTab(tab);
-});
-
-// onActivated only fires for tab switches *within* a window - switching to
-// a different browser window entirely (without changing which tab is
-// active in it) doesn't raise it, so the previously-focused window's panel
-// state could go stale. Covers that gap.
-chrome.windows.onFocusChanged.addListener((windowId) => {
-  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
-  chrome.tabs.query({ active: true, windowId }).then((tabs) => tabs.forEach(updatePanelForTab));
-});
-
-// re-evaluate every currently-active tab immediately when the user flips
-// "keep open everywhere" - otherwise the change only takes effect on the
-// next tab switch/navigation, which feels broken.
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local" || !changes[SETTINGS_KEY]) return;
-  chrome.tabs.query({ active: true }).then((tabs) => tabs.forEach(updatePanelForTab));
-});
-
-// set the initial enabled/disabled state for every open tab on install/startup,
-// rather than only reacting to future tab events.
-function initAllTabs() {
-  chrome.tabs.query({}).then((tabs) => tabs.forEach(updatePanelForTab));
-}
-chrome.runtime.onInstalled.addListener(initAllTabs);
-chrome.runtime.onStartup.addListener(initAllTabs);
 
 function getQueryParam(url, name) {
   try {
@@ -75,6 +27,10 @@ function parsePlusMinusFloat(value) {
   if (value == null) return null;
   const num = parseFloat(String(value).replace("+", "-"));
   return Number.isNaN(num) ? null : num;
+}
+
+function nameFromGolferRecord(g) {
+  return `${g.first_name || ""} ${g.last_name || ""}`.trim() || null;
 }
 
 async function loadStore() {
@@ -108,8 +64,12 @@ function classify(url) {
   const handicapMatch = url.match(/golfers\/(\d+)\/handicap_history\.json/);
   if (handicapMatch) return { type: "handicap_history", id: handicapMatch[1] };
   if (/scores\.json/.test(url)) return "scores";
+  // the digit here is the logged-in user's OWN id (GHIN.com calls
+  // followed_golfers/{my_id}.json to list who *I* follow) - remembered so
+  // "Analyze All Followed Golfers" can call this endpoint on demand later,
+  // without requiring the user to be on that exact page again.
   const followedMatch = url.match(/followed_golfers\/(\d+)\.json/);
-  if (followedMatch) return "followed_golfers";
+  if (followedMatch) return { type: "followed_golfers", myId: followedMatch[1] };
   return null;
 }
 
@@ -154,7 +114,7 @@ async function handleCapture(url, body) {
     for (const g of golfers) {
       if (g?.id == null) continue;
       const entry = ensureGolfer(store, String(g.id));
-      entry.name = `${g.first_name || ""} ${g.last_name || ""}`.trim() || entry.name;
+      entry.name = nameFromGolferRecord(g) || entry.name;
       entry.lowHandicap = parsePlusMinusFloat(g.low_hi_display);
       entry.lowHandicapDate = g.low_hi_date || entry.lowHandicapDate;
       entry.createdAt = g.created_at || entry.createdAt;
@@ -206,12 +166,13 @@ async function handleCapture(url, body) {
       };
     }
     if (!entry.name && shouldRetryNameFetch(entry)) golferNeedingName = entry;
-  } else if (kind === "followed_golfers") {
+  } else if (kind.type === "followed_golfers") {
+    store.myGolferId = kind.myId;
     const golfers = body?.golfers || [];
     for (const g of golfers) {
       if (g?.id == null) continue;
       const entry = ensureGolfer(store, String(g.id));
-      entry.name = `${g.first_name || ""} ${g.last_name || ""}`.trim() || entry.name;
+      entry.name = nameFromGolferRecord(g) || entry.name;
     }
   }
 

@@ -10,6 +10,13 @@
   --red: #e05555;
   --cyan: #4dd0e1;
   --dim: #8a8a8a;
+  /* Carry:Drag bar only - deliberately not red/green so it can't be
+     confused with the good/bad coloring used everywhere else (Scoring
+     Differentials, consistency score, etc). Validated as a categorical
+     pair against this app's dark surface (#1e1e1e): CVD DeltaE 26.0,
+     normal-vision DeltaE 27.0, both well clear of the 8/15 targets. */
+  --carry: #d95926;
+  --drag: #9085e9;
 }
 
 * { box-sizing: border-box; }
@@ -24,11 +31,17 @@ body {
 
 header {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
+}
+
+.header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 header h1 {
@@ -53,17 +66,11 @@ button {
   font-size: 12px;
 }
 
-.exclude-btn {
-  padding: 2px 6px;
-  font-size: 11px;
-  color: var(--dim);
-  white-space: nowrap;
-}
-.exclude-btn:hover {
-  color: var(--red);
-  border-color: var(--red);
-}
 button:hover { border-color: var(--accent); }
+
+.streak-toggle-btn {
+  margin-bottom: 16px;
+}
 
 .tabs {
   display: flex;
@@ -100,6 +107,13 @@ main { padding: 10px 12px; }
 
 .fetch-status {
   margin-bottom: 12px;
+}
+
+#fetch-status {
+  padding: 0 12px;
+}
+#fetch-status:empty {
+  display: none;
 }
 
 .checkbox-label {
@@ -156,18 +170,36 @@ main { padding: 10px 12px; }
   text-transform: uppercase;
   margin: 8px 0 4px;
 }
-.col-menu-group:first-child { margin-top: 0; }
 
-.col-menu-item {
+.col-menu-group-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+.col-menu-group-header:first-of-type { margin-top: 0; }
+.col-menu-group-header .col-menu-group { margin: 0; }
+
+.col-menu-select-all-inline {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-  font-size: 12px;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  color: var(--dim);
   cursor: pointer;
 }
 
-.golfer-menu-item {
+.col-menu-select-all {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.col-menu-item {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -218,6 +250,10 @@ tr.section-end td {
   border-bottom: 2px solid var(--accent);
 }
 
+tr.scoring-row td {
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+}
+
 .clr-green { color: var(--green); font-weight: 600; }
 .clr-yellow { color: var(--yellow); font-weight: 600; }
 .clr-red { color: var(--red); font-weight: 600; }
@@ -238,6 +274,70 @@ tr.section-end td {
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 1px 5px;
+}
+
+.ratio-bar {
+  display: flex;
+  gap: 2px;
+}
+.ratio-seg {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
+.ratio-seg.carry { background: var(--carry); }
+.ratio-seg.drag { background: var(--drag); }
+.ratio-seg.match { background: var(--dim); }
+
+.clr-carry { color: var(--carry); font-weight: 600; }
+.clr-drag { color: var(--drag); font-weight: 600; }
+.ratio-label {
+  margin-top: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.range-strip {
+  position: relative;
+  width: 100px;
+  height: 10px;
+}
+.range-track {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--border);
+}
+.range-stddev-band {
+  position: absolute;
+  top: 2px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.35;
+}
+.range-avg-marker {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 10px;
+  background: var(--accent);
+  transform: translateX(-1px);
+}
+.range-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.range-avg-label {
+  color: var(--fg);
 }
 
 .chart {
@@ -380,7 +480,6 @@ tr.section-end td {
   cursor: pointer;
 }
 .course-result:hover { border-color: var(--accent); }
-.course-result.selected { border-color: var(--accent); background: var(--head-bg); }
 
 .course-result-meta {
   color: var(--dim);

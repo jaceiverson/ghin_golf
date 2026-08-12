@@ -7,6 +7,7 @@
 const CHART_COLORS = {
   series1: "#3987e5", // categorical slot 1 (blue) - handicap line
   series2: "#d95926", // categorical slot 2 (orange) - differential bars
+  series3: "#199e70", // categorical slot 3 (aqua/green) - third line when one is toggled on
   grid: "#2c2c2a",
   axis: "#383835",
   muted: "#898781",
@@ -53,6 +54,12 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function formatMonthYear(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+}
+
 function emptyNote(container, text) {
   container.appendChild(htmlEl("div", { className: "empty-note", text }));
 }
@@ -82,7 +89,7 @@ function buildChartShell(container, title, legendItems) {
   return { wrap, svg, tooltip };
 }
 
-const MARGIN = { top: 12, right: 14, bottom: 26, left: 36 };
+const MARGIN = { top: 12, right: 14, bottom: 40, left: 36 };
 const CHART_W = 640;
 const CHART_H = 260;
 const PLOT_W = CHART_W - MARGIN.left - MARGIN.right;
@@ -114,24 +121,37 @@ function drawAxes(svg, yTicks, yScale, xTickLabels) {
       "stroke-width": 1,
     })
   );
+  // rotated - "all months and years" can mean dozens of ticks on a fixed
+  // 640px canvas, and horizontal labels would overlap well before that.
   for (const { x, text } of xTickLabels) {
+    const y = MARGIN.top + PLOT_H + 12;
     const label = svgEl("text", {
       x,
-      y: MARGIN.top + PLOT_H + 16,
-      "text-anchor": "middle",
-      "font-size": 10,
+      y,
+      "text-anchor": "end",
+      "font-size": 9,
       fill: CHART_COLORS.muted,
+      transform: `rotate(-40 ${x} ${y})`,
     });
     label.textContent = text;
     svg.appendChild(label);
   }
 }
 
+// one tick per calendar month present in the data (not just first/mid/last),
+// labeled "Mon YYYY", at the x position of that month's first data point.
 function makeXTickLabels(dates, xForIndex) {
-  const n = dates.length;
-  if (n === 0) return [];
-  const indexes = n === 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
-  return [...new Set(indexes)].map((i) => ({ x: xForIndex(i), text: formatDate(dates[i]) }));
+  const seenMonths = new Set();
+  const ticks = [];
+  dates.forEach((iso, i) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return;
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    if (seenMonths.has(key)) return;
+    seenMonths.add(key);
+    ticks.push({ x: xForIndex(i), text: formatMonthYear(iso) });
+  });
+  return ticks;
 }
 
 // attaches a full-plot hit layer that finds the nearest x index and calls
@@ -193,79 +213,44 @@ function positionTooltip(tooltip, wrap, clientX, clientY) {
   tooltip.style.display = "block";
 }
 
-// single-series line chart (e.g. handicap over time)
-function renderLineChart(container, { title, dates, values, color = CHART_COLORS.series1, seriesLabel }) {
-  const points = dates.map((d, i) => ({ date: d, value: values[i] })).filter((p) => p.value != null);
-  if (points.length < 2) {
-    emptyNote(container, `Not enough dated data yet for "${title}".`);
-    return;
-  }
-
-  const { svg, wrap, tooltip } = buildChartShell(container, title, []);
-  const vals = points.map((p) => p.value);
-  const yTicks = niceTicks(Math.min(0, ...vals), Math.max(...vals));
-  const yScale = (v) => MARGIN.top + PLOT_H - ((v - yTicks.min) / (yTicks.max - yTicks.min)) * PLOT_H;
-  const xForIndex = (i) => MARGIN.left + (points.length === 1 ? PLOT_W / 2 : (i / (points.length - 1)) * PLOT_W);
-
-  drawAxes(svg, yTicks, yScale, makeXTickLabels(points.map((p) => p.date), xForIndex));
-
-  const pathData = points.map((p, i) => `${i === 0 ? "M" : "L"}${xForIndex(i)},${yScale(p.value)}`).join(" ");
-  svg.appendChild(svgEl("path", { d: pathData, fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
-
-  if (points.length <= 40) {
-    for (let i = 0; i < points.length; i++) {
-      svg.appendChild(
-        svgEl("circle", { cx: xForIndex(i), cy: yScale(points[i].value), r: 4, fill: color, stroke: CHART_COLORS.surface, "stroke-width": 2 })
-      );
-    }
-  }
-
-  // direct end-label on the last point
-  const last = points[points.length - 1];
-  const endLabel = svgEl("text", {
-    x: Math.min(xForIndex(points.length - 1) + 6, CHART_W - 4),
-    y: yScale(last.value) - 8,
-    "font-size": 11,
-    "font-weight": 600,
-    fill: CHART_COLORS.ink,
-  });
-  endLabel.textContent = last.value;
-  svg.appendChild(endLabel);
-
-  attachCrosshair(svg, tooltip, wrap, xForIndex, points.length, (i, clientX, clientY) => {
-    const p = points[i];
-    tooltip.textContent = "";
-    tooltip.appendChild(htmlEl("div", { className: "tooltip-date", text: formatDate(p.date) }));
-    const row = htmlEl("div", { className: "tooltip-row" });
-    row.appendChild(htmlEl("span", { className: "tooltip-key", text: "" })).style.background = color;
-    row.appendChild(htmlEl("span", { className: "tooltip-value", text: String(p.value) }));
-    if (seriesLabel) row.appendChild(htmlEl("span", { className: "tooltip-label", text: seriesLabel }));
-    tooltip.appendChild(row);
-    positionTooltip(tooltip, wrap, clientX, clientY);
-  });
-}
-
 // two-series combo: bars for one series, a line for the other, one shared
 // y-axis (never dual-axis) since both are the same units (strokes).
+// showBars/showLine let a series be toggled off entirely - hidden series
+// are excluded from the legend, the tooltip, and (importantly) the y-axis
+// domain, so hiding one actually rescales the chart rather than just
+// leaving dead space.
 function renderComboChart(
   container,
-  { title, dates, barValues, barLabel, barColor = CHART_COLORS.series2, lineValues, lineLabel, lineColor = CHART_COLORS.series1 }
+  {
+    title,
+    dates,
+    barValues,
+    barLabel,
+    barColor = CHART_COLORS.series2,
+    lineValues,
+    lineLabel,
+    lineColor = CHART_COLORS.series1,
+    showBars = true,
+    showLine = true,
+  }
 ) {
   const n = dates.length;
   const rows = [];
   for (let i = 0; i < n; i++) {
-    if (barValues[i] == null && lineValues[i] == null) continue;
-    rows.push({ date: dates[i], bar: barValues[i], line: lineValues[i] });
+    const bar = showBars ? barValues[i] : null;
+    const line = showLine ? lineValues[i] : null;
+    if (bar == null && line == null) continue;
+    rows.push({ date: dates[i], bar, line });
   }
   if (rows.length < 2) {
-    emptyNote(container, `Not enough dated data yet for "${title}".`);
+    emptyNote(container, showBars || showLine ? `Not enough dated data yet for "${title}".` : "Both series are hidden - toggle one on above.");
     return;
   }
 
-  const { svg, wrap, tooltip } = buildChartShell(container, title, [
-    { color: barColor, label: barLabel },
-    { color: lineColor, label: lineLabel },
-  ]);
+  const legend = [];
+  if (showBars) legend.push({ color: barColor, label: barLabel });
+  if (showLine) legend.push({ color: lineColor, label: lineLabel });
+  const { svg, wrap, tooltip } = buildChartShell(container, title, legend);
 
   const allVals = rows.flatMap((r) => [r.bar, r.line]).filter((v) => v != null);
   const yTicks = niceTicks(Math.min(0, ...allVals), Math.max(...allVals));
@@ -278,33 +263,37 @@ function renderComboChart(
 
   drawAxes(svg, yTicks, yScale, makeXTickLabels(rows.map((r) => r.date), xForIndex));
 
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i].bar == null) continue;
-    const barY = yScale(rows[i].bar);
-    const top = Math.min(barY, baselineY);
-    const height = Math.max(1, Math.abs(barY - baselineY));
-    svg.appendChild(
-      svgEl("rect", {
-        x: xForIndex(i) - barW / 2,
-        y: top,
-        width: barW,
-        height,
-        rx: 3,
-        fill: barColor,
-      })
-    );
+  if (showBars) {
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].bar == null) continue;
+      const barY = yScale(rows[i].bar);
+      const top = Math.min(barY, baselineY);
+      const height = Math.max(1, Math.abs(barY - baselineY));
+      svg.appendChild(
+        svgEl("rect", {
+          x: xForIndex(i) - barW / 2,
+          y: top,
+          width: barW,
+          height,
+          rx: 3,
+          fill: barColor,
+        })
+      );
+    }
   }
 
-  const linePoints = rows.map((r, i) => ({ i, value: r.line })).filter((p) => p.value != null);
-  if (linePoints.length >= 2) {
-    const pathData = linePoints.map((p, k) => `${k === 0 ? "M" : "L"}${xForIndex(p.i)},${yScale(p.value)}`).join(" ");
-    svg.appendChild(
-      svgEl("path", { d: pathData, fill: "none", stroke: lineColor, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" })
-    );
-    for (const p of linePoints) {
+  if (showLine) {
+    const linePoints = rows.map((r, i) => ({ i, value: r.line })).filter((p) => p.value != null);
+    if (linePoints.length >= 2) {
+      const pathData = linePoints.map((p, k) => `${k === 0 ? "M" : "L"}${xForIndex(p.i)},${yScale(p.value)}`).join(" ");
       svg.appendChild(
-        svgEl("circle", { cx: xForIndex(p.i), cy: yScale(p.value), r: 3.5, fill: lineColor, stroke: CHART_COLORS.surface, "stroke-width": 2 })
+        svgEl("path", { d: pathData, fill: "none", stroke: lineColor, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" })
       );
+      for (const p of linePoints) {
+        svg.appendChild(
+          svgEl("circle", { cx: xForIndex(p.i), cy: yScale(p.value), r: 3.5, fill: lineColor, stroke: CHART_COLORS.surface, "stroke-width": 2 })
+        );
+      }
     }
   }
 
@@ -330,6 +319,76 @@ function renderComboChart(
       row.appendChild(htmlEl("span", { className: "tooltip-label", text: lineLabel }));
       tooltip.appendChild(row);
     }
+    positionTooltip(tooltip, wrap, clientX, clientY);
+  });
+}
+
+// two independent line series (e.g. 9-hole vs 18-hole differentials) on one
+// shared y-axis - each round only has a value in whichever series matches
+// its hole count, so gaps are expected and each line just skips over them.
+// N independent line series on one shared y-axis (e.g. 9-hole/18-hole/
+// unadjusted-9-hole differentials) - each round only has a value in
+// whichever series applies to it, so gaps are expected and each line just
+// skips over them. `series` is [{values, label, color}, ...]; entries whose
+// every value is null are dropped before rendering (a toggled-off series
+// should not eat a legend slot or a color from the categorical order).
+function renderMultiLineChart(container, { title, dates, series }) {
+  const active = series.filter((s) => s.values.some((v) => v != null));
+  if (!active.length) {
+    emptyNote(container, "All series are hidden - toggle one on above.");
+    return;
+  }
+
+  const n = dates.length;
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    if (active.every((s) => s.values[i] == null)) continue;
+    rows.push({ date: dates[i], values: active.map((s) => s.values[i]) });
+  }
+  if (rows.length < 2) {
+    emptyNote(container, `Not enough dated data yet for "${title}".`);
+    return;
+  }
+
+  const { svg, wrap, tooltip } = buildChartShell(container, title, active.map((s) => ({ color: s.color, label: s.label })));
+
+  const allVals = rows.flatMap((r) => r.values).filter((v) => v != null);
+  const yTicks = niceTicks(Math.min(0, ...allVals), Math.max(...allVals));
+  const yScale = (v) => MARGIN.top + PLOT_H - ((v - yTicks.min) / (yTicks.max - yTicks.min)) * PLOT_H;
+  const xForIndex = (i) => MARGIN.left + (rows.length === 1 ? PLOT_W / 2 : (i / (rows.length - 1)) * PLOT_W);
+
+  drawAxes(svg, yTicks, yScale, makeXTickLabels(rows.map((r) => r.date), xForIndex));
+
+  active.forEach((s, seriesIndex) => {
+    const points = rows.map((r, i) => ({ i, value: r.values[seriesIndex] })).filter((p) => p.value != null);
+    if (points.length >= 2) {
+      const pathData = points.map((p, k) => `${k === 0 ? "M" : "L"}${xForIndex(p.i)},${yScale(p.value)}`).join(" ");
+      svg.appendChild(
+        svgEl("path", { d: pathData, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" })
+      );
+    }
+    for (const p of points) {
+      svg.appendChild(
+        svgEl("circle", { cx: xForIndex(p.i), cy: yScale(p.value), r: 3.5, fill: s.color, stroke: CHART_COLORS.surface, "stroke-width": 2 })
+      );
+    }
+  });
+
+  attachCrosshair(svg, tooltip, wrap, xForIndex, rows.length, (i, clientX, clientY) => {
+    const r = rows[i];
+    tooltip.textContent = "";
+    tooltip.appendChild(htmlEl("div", { className: "tooltip-date", text: formatDate(r.date) }));
+    active.forEach((s, seriesIndex) => {
+      const value = r.values[seriesIndex];
+      if (value == null) return;
+      const row = htmlEl("div", { className: "tooltip-row" });
+      const key = htmlEl("span", { className: "tooltip-key" });
+      key.style.background = s.color;
+      row.appendChild(key);
+      row.appendChild(htmlEl("span", { className: "tooltip-value", text: String(value) }));
+      row.appendChild(htmlEl("span", { className: "tooltip-label", text: s.label }));
+      tooltip.appendChild(row);
+    });
     positionTooltip(tooltip, wrap, clientX, clientY);
   });
 }
