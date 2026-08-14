@@ -31,8 +31,10 @@ There are a few basic steps to get started:
 
 Next steps would be to add some of your friends GHIN numbers to the [`golfers.json`](inputs/golfers.json) file and run the [`graphs_and_tables.py`](examples/graphs_and_tables.py) file. 
 
-### Authentication 
-We need to have a GHIN account and be able to sign in to the web portal where you have access to the network developer tools. After you are signed in, open the network section of the developer tools and find and endpoint that has `.json` in it. You should see some that start with `search.json?` and `check_trial.json?`. Once you have found that request, click on the `Headers` section of that request. Scroll to find the `Request Headers` and specifically the `Authorization` header. You should see a value that starts with `Bearer`. Copy the key that starts after `Bearer`. You DO NOT need `Bearer`. Save that key value as an environment variable named `AUTH_COOKIE`. You can use a `.env` file, `export AUTH_COOKIE=`, or save it however you normally save environment variables. Now you are ready to go and make requests. 
+### Authentication
+The easiest way: set `GHIN_NUMBER` and `GHIN_LOGIN_PWD` (your GHIN login credentials) as environment variables - in a `.env` file, `export ...`, or however you normally do it. The library logs in to GHIN directly (plain `requests`, no browser) and writes the resulting token to `AUTH_COOKIE` for you, refreshing it automatically every couple of hours.
+
+If you'd rather not store your password, you can get the token manually instead: sign in to the GHIN web portal and open your browser's network developer tools. Find a request with `.json` in it - you should see some that start with `search.json?` and `check_trial.json?`. Click on the `Headers` section of that request, scroll to `Request Headers`, and find the `Authorization` header. You'll see a value that starts with `Bearer`; copy the part *after* `Bearer ` (you don't need the word `Bearer` itself) and save it as an environment variable named `AUTH_COOKIE`. This token expires periodically, so you'll need to repeat this manually from time to time - the automated login above doesn't have that problem.
 
 ### Running the code and outputs
 We use `rich` to render really nice looking table outputs in the terminal. To get an idea of possible outputs you can run any of the examples. 

@@ -1,41 +1,46 @@
 import datetime as dt
-import json
 import os
-import time
 
+import requests
 from dotenv import load_dotenv
-from selenium.webdriver import Chrome
-from selenium.webdriver.chrome.options import Options
 
 load_dotenv()
 
-
-def process_browser_log_entry(entry):
-    response = json.loads(entry["message"])["message"]
-    return response
+GHIN_LOGIN_URL = "https://api2.ghin.com/api/v1/golfer_login.json"
 
 
-def get_driver() -> Chrome:
-    options = Options()
-    options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
-    return Chrome(options)
+def fetch_ghin_token(email_or_ghin: str, password: str) -> str:
+    """
+    Log in to GHIN directly via its login API - no browser required. This is
+    the same request ghin.com's own frontend makes when you submit the login
+    form; it returns a golfer_user_token that's used as the `Bearer` token on
+    every other GHIN API call.
+    """
+    response = requests.post(
+        GHIN_LOGIN_URL,
+        json={
+            "user": {
+                "email_or_ghin": email_or_ghin,
+                "password": password,
+                "remember_me": True,
+            },
+            "token": "GHINcom",
+            "source": "GHINcom",
+        },
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=10,
+    )
+    if response.status_code != 200:
+        # GHIN returns a 400 with a structured error body on bad credentials
+        # rather than raising at the transport level, so surface its message
+        # instead of a generic HTTPError.
+        try:
+            detail = response.json()["errors"]["digital_profile"][0]["top_line"]
+        except (KeyError, IndexError, ValueError):
+            detail = response.text
+        raise RuntimeError(f"GHIN login failed ({response.status_code}): {detail}")
 
-
-def get_cookie(driver: Chrome, starting_url: str, request_url: str) -> None:
-    driver.get(starting_url)
-    time.sleep(2)  # wait for all the data to arrive.
-    browser_log = driver.get_log("performance")
-    events = [process_browser_log_entry(entry) for entry in browser_log]
-    request_events = [event for event in events if "Network.request" in event["method"]]
-    api_request_event = [
-        event
-        for event in request_events
-        if request_url in event["params"].get("request", {}).get("url", {})
-        and "Authorization" in event["params"].get("request", {}).get("headers", {})
-    ]
-    auth_bearer = api_request_event[0]["params"]["request"]["headers"]["Authorization"]
-    bears, cookie = auth_bearer.split("Bearer ")
-    return cookie
+    return response.json()["golfer_user"]["golfer_user_token"]
 
 
 def save_cookie_to_env(cookie: str) -> None:
@@ -46,30 +51,6 @@ def save_cookie_to_env(cookie: str) -> None:
     with open(".env", "a") as f:
         f.write(f"AUTH_COOKIE={cookie}\n")
     os.environ["AUTH_TOKEN"] = cookie
-
-
-def login_to_ghin(driver: Chrome, login_url: str) -> None:
-    # pull up the page
-    driver.get(login_url)
-    # wait for page to load
-    time.sleep(2)
-    # find the login elements
-    email_input = driver.find_element("xpath", '//*[@id="emailOrGhin"]')
-    password_input = driver.find_element("xpath", '//*[@id="password"]')
-    cookie_popup_x_button = driver.find_element(
-        "xpath", '//*[@id="onetrust-close-btn-container"]/button'
-    )
-    submit_button = driver.find_element(
-        "xpath",
-        '//*[@id="main-content"]/section/div[2]/div/div[1]/div/div[7]/div/button',
-    )
-    # input username and password
-    cookie_popup_x_button.click()
-    email_input.send_keys(os.environ["GHIN_NUMBER"])
-    password_input.send_keys(os.environ["GHIN_LOGIN_PWD"])
-    submit_button.click()
-    # submit
-    return driver
 
 
 def save_last_pulled_time() -> None:
@@ -96,12 +77,7 @@ def process_to_get_ghin_cookie() -> None | str:
     elif dt.datetime.now() - last_pulled < dt.timedelta(hours=2):
         # print("PULLED RECENTLY")
         return None
-    first_url = "https://www.ghin.com/login/"
-    api_url_to_find = "https://api2.ghin.com/api/v1/"
-    driver = get_driver()
-    driver = login_to_ghin(driver, first_url)
-    time.sleep(2)  # wait for the login to complete
-    cookie = get_cookie(driver, first_url, api_url_to_find)
+    cookie = fetch_ghin_token(os.environ["GHIN_NUMBER"], os.environ["GHIN_LOGIN_PWD"])
     save_cookie_to_env(cookie)
     save_last_pulled_time()
     return cookie
