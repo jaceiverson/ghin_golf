@@ -1,10 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "GHIN Handicap Tables",
-  "version": "1.0.0",
-  "description": "Alternative handicap tables, streaks, and charts for GHIN.com scores, shown in a side panel using your own logged-in session.",
-  "permissions": ["storage", "sidePanel"],
-  "host_permissions": ["https://*.ghin.com/*"],
+  "name": "GHIN-sights",
+  "version": "1.2.0",
+  "description": "Alternative handicap tables, streaks, and charts for GHIN.com scores, shown in a side panel using your own logged-in session. Help you get more out of the scores you are posting to GHIN.",
+  "permissions": [
+    "storage",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://*.ghin.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -16,13 +21,21 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://*.ghin.com/*"],
-      "js": ["content-bridge.js"],
+      "matches": [
+        "https://*.ghin.com/*"
+      ],
+      "js": [
+        "content-bridge.js"
+      ],
       "run_at": "document_start"
     },
     {
-      "matches": ["https://*.ghin.com/*"],
-      "js": ["injected.js"],
+      "matches": [
+        "https://*.ghin.com/*"
+      ],
+      "js": [
+        "injected.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     }

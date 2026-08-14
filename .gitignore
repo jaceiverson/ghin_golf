@@ -10,3 +10,4 @@ chromedriver
 last_pulled_time.txt
 hidden_outputs/
 *.zip
+.DS_Store
