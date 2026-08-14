@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "GHIN-sights",
   "version": "1.2.0",
-  "description": "Alternative handicap tables, streaks, and charts for GHIN.com scores, shown in a side panel using your own logged-in session. Help you get more out of the scores you are posting to GHIN.",
+  "description": "Alternative handicap metrics for GHIN.com scores to help you get more out of the scores you are posting to GHIN.",
   "permissions": [
     "storage",
     "sidePanel"
