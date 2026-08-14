@@ -29,6 +29,7 @@
         Analyze All Followed Golfers
       </button>
       <button id="clear-btn" title="Clear captured data">Clear data</button>
+      <button id="refresh-ghin-btn" title="Reload your open GHIN.com tab">Refresh GHIN.com</button>
     </div>
   </header>
   <div id="fetch-status" class="status fetch-status"></div>
@@ -39,6 +40,7 @@
     <button class="tab-btn" data-tab="diff">Scoring Differentials</button>
     <button class="tab-btn" data-tab="charts">Charts</button>
     <button class="tab-btn" data-tab="raw">Raw Data</button>
+    <button class="tab-btn" data-tab="definitions">Definitions</button>
   </nav>
 
   <main id="panels">
@@ -75,6 +77,7 @@
     <section id="panel-diff" class="panel">
       <div class="diff-controls">
         <div id="col-menu-holder"></div>
+        <div id="diff-sort-holder"></div>
       </div>
       <div id="diff-table-holder"></div>
     </section>
@@ -97,6 +100,7 @@
       </div>
       <div id="csv-preview-holder"></div>
     </section>
+    <section id="panel-definitions" class="panel"></section>
   </main>
 
   <script src="calc.js"></script>

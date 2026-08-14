@@ -13,9 +13,12 @@ function cell(content, cls) {
   return el("td", { text: content, className: cls });
 }
 
-// mirrors tables._colorize_consistency_score
+// thresholds retuned for the spread-based consistency formula in calc.js
+// (see CONSISTENCY_SCORE_DESIGN.md) - real golfers now spread red/yellow/green
+// roughly by how tight their spread actually is, instead of clustering almost
+// entirely in yellow the way the old ratio-based score did.
 function colorizeConsistency(pct) {
-  const cls = pct < 50 ? "clr-red" : pct < 75 ? "clr-yellow" : "clr-green";
+  const cls = pct < 50 ? "clr-red" : pct < 70 ? "clr-yellow" : "clr-green";
   return { text: `${pct.toFixed(1)}%`, cls };
 }
 
@@ -46,9 +49,11 @@ function scrollWrap(table) {
 function buildTable(title, headers, rows) {
   const table = el("table");
   table.appendChild(el("caption", { text: title }));
-  const headerCells = headers.map((h) =>
-    typeof h === "string" ? el("th", { text: h }) : el("th", { text: h.text, className: h.className })
-  );
+  const headerCells = headers.map((h) => {
+    const text = typeof h === "string" ? h : h.text;
+    const className = typeof h === "string" ? undefined : h.className;
+    return withDefinitionTooltip(el("th", { text, className }), text);
+  });
   const thead = el("thead", {}, [el("tr", {}, headerCells)]);
   table.appendChild(thead);
   const tbody = el("tbody");
@@ -75,7 +80,8 @@ function buildTransposedTable(title, spreads, rowDefs) {
   table.appendChild(el("thead", {}, [headerRow]));
   const tbody = el("tbody");
   for (const rowDef of rowDefs) {
-    const tr = el("tr", {}, [el("th", { text: rowDef.label, className: "row-label" })]);
+    const labelTh = withDefinitionTooltip(el("th", { text: rowDef.label, className: "row-label" }), rowDef.label);
+    const tr = el("tr", {}, [labelTh]);
     for (const s of spreads) tr.appendChild(rowDef.render(s));
     tbody.appendChild(tr);
   }
@@ -153,7 +159,6 @@ function renderStatistics(container, spreads) {
         label: "Range & Std Dev (all 20 scores)",
         render: (s) => rangeStdDevStripCell(s.differentialMin, s.differentialMax, s.differentialAverage, s.handicapStdDev),
       },
-      { label: "Consistency Score", render: (s) => coloredCell(colorizeConsistency(s.consistencyScoreBest8All20)) },
       { label: "Carry:Drag", render: (s) => carryDragRatioCell(s.best8Differentials, s.best8Handicap) },
       {
         label: "Current Hot Streak",
@@ -181,6 +186,7 @@ function renderStatistics(container, spreads) {
           return cell(`${s.coldStreakLongest}${ice}`, s.coldStreakLongest > 0 ? "clr-red" : "");
         },
       },
+      { label: "Consistency Score", render: (s) => coloredCell(colorizeConsistency(s.consistencyScoreBest8All20)) },
     ])
   );
 }
@@ -436,6 +442,210 @@ const TOGGLE_COLUMN_GROUPS = [
 const ALL_TOGGLE_COLUMNS = TOGGLE_COLUMN_GROUPS.flatMap((g) => g.columns);
 let visibleColumnKeys = new Set();
 
+// term -> description shown on the Definitions tab and as a hover tooltip
+// anywhere that term is used as a table/column header. Empty for now - fill
+// these in as you go; blank entries just render as "-" and get no tooltip.
+const METRIC_DEFINITIONS = {
+  "Best 8": "This is what your posted handicap is. Your best 8 differentials of your last 20 rounds. We automatically include recent rounds, where GHIN takes some time. So if you have recent scoring rounds this number might be slightly different.",
+  "Worst 8": "Alternatively, what would your handicap be if we took your worst 8 of your last 20. For obvious reasons this would be a terrible idea in a competitive environment, but for educational purposes it can be useful.",
+  "Last 8": "What would your handicap be if we only took your most recent 8 scores. How are you playing lately? Same caveat about competitive integrity as worst 8 metric.",
+  "Last 4": "Same as Last 8, but only take your most recent 4 scores. Even more, 'What have you done for me recently?'",
+  "All 20": "Instead of taking your best 8, lets look at your 20 most recent rounds and give an average.",
+  "Drop 4HL": "Drop your 4 lowest and 4 highest differentials and average our the remaining 12. I like this metric as it tells me how I am 'normally' playing.",
+  "Range & Std Dev (all 20 scores)": "Min, Max, Average, and Standard Deviation of your 20 most recent differentials.",
+  "Consistency Score": "Score used to determine how consistent you are playing. 100% consistency score would mean all 20 of your most recent rounds fall within 0.1 difference to your posted handicap. To not punish higher spread golfers we use a scaler value. More details and a visual are shown below.",
+  "Carry:Drag": "Carry is how many scoring rounds you have BELOW your posted handicap. Drag is how many scoring rounds you have above your posted handicap. High carry suggests extraordinary rounds and high drag suggests your handicap will likely lower in your next few rounds.",
+  "Current Hot Streak": "Hot Streak is how many consecutive rounds you post a scoring round.",
+  "Best Hot Streak": "When you pull historical data we can see your best hot streak for all posted GHIN rounds.",
+  "Current Cold Streak": "Cold Streak is how many consecutive rounds you post without a scoring round. The max possible is 12. We hope you don't get there.",
+  "Worst Cold Streak": "When you pull historical data we can see your best hot streak for all posted GHIN rounds.",
+  "8th Scored": "This is your highest scored differential. Score better than this and your handicap will go down.",
+  "Score Fall Off": "The next 4 rounds to 'fall off' and no longer be considered in your last 20 rounds.",
+  "Worst Potential Handicap": "What is the worst case for your handicap when you play your next round. If your next round to fall off isn't a scoring round, this number will match your current handicap.",
+  "To Lower by .5": "What differential you need to score for your next round to lower your handicap by 0.5.",
+  "To Lower by 1": "What differential you need to score for your next round to lower your handicap by 1.",
+  "Low Handicap": "Your all time low handicap index.",
+  "Low Date": "The date you help your lowest handicap.",
+  "Total Scores": "How many rounds have you posted to GHIN?",
+  "Highest Score": "Your highest posted gross score.",
+  "Lowest Score": "Your lowest posted gross score.",
+  "Average Score": "Your average posted score (18 holes)",
+};
+
+function definitionFor(term) {
+  return METRIC_DEFINITIONS[term] || "";
+}
+
+// how long to hover before the tooltip appears - the native `title`
+// attribute's delay is an OS setting we can't control, so headers/row labels
+// with a definition use this instead. Lower = snappier, but too low makes it
+// pop up on every incidental mouse pass over the table.
+const TOOLTIP_DELAY_MS = 120;
+
+let fastTooltipEl = null;
+function showFastTooltip(target, text) {
+  if (!fastTooltipEl) {
+    fastTooltipEl = el("div", { className: "fast-tooltip" });
+    document.body.appendChild(fastTooltipEl);
+  }
+  fastTooltipEl.textContent = text;
+  fastTooltipEl.style.display = "block";
+  const rect = target.getBoundingClientRect();
+  const tipRect = fastTooltipEl.getBoundingClientRect();
+  const left = Math.min(rect.left, window.innerWidth - tipRect.width - 8);
+  fastTooltipEl.style.left = `${Math.max(4, left)}px`;
+  fastTooltipEl.style.top = `${rect.bottom + 4}px`;
+}
+function hideFastTooltip() {
+  if (fastTooltipEl) fastTooltipEl.style.display = "none";
+}
+
+// attaches the fast hover tooltip to a header/row-label cell - a no-op if
+// there's no definition yet, so undefined terms stay plain (no dotted
+// underline promising a tooltip that isn't there).
+function withDefinitionTooltip(node, term) {
+  const definition = definitionFor(term);
+  if (!definition) return node;
+  node.classList.add("has-tooltip");
+  let timer;
+  node.addEventListener("mouseenter", () => {
+    timer = setTimeout(() => showFastTooltip(node, definition), TOOLTIP_DELAY_MS);
+  });
+  node.addEventListener("mouseleave", () => {
+    clearTimeout(timer);
+    hideFastTooltip();
+  });
+  return node;
+}
+
+// grouped the same way the Columns picker groups them, plus the
+// hand-written metrics above each in their own section - one row per term,
+// ready to have its Definition cell filled in.
+const DEFINITION_SECTIONS = [
+  { section: "Alternative Handicaps", terms: ["Best 8", "Worst 8", "Last 8", "Last 4", "All 20", "Drop 4HL"] },
+  {
+    section: "Statistics",
+    terms: [
+      "Range & Std Dev (all 20 scores)",
+      "Carry:Drag",
+      "Current Hot Streak",
+      "Best Hot Streak",
+      "Current Cold Streak",
+      "Worst Cold Streak",
+      "Consistency Score",
+    ],
+  },
+  {
+    section: "Next Round Helpers",
+    terms: ["8th Scored", "Score Fall Off", "Worst Potential Handicap", "To Lower by .5", "To Lower by 1"],
+  },
+  {
+    section: "Historical Values",
+    terms: ["Low Handicap", "Low Date", "Total Scores", "Highest Score", "Lowest Score", "Average Score"],
+  },
+  ...TOGGLE_COLUMN_GROUPS.map((g) => ({ section: `Scoring Differentials - ${g.group}`, terms: g.columns.map((c) => c.label) })),
+];
+
+// CONSISTENCY_RAMP_START/END, CONSISTENCY_SCALE_MIN/MAX, CONSISTENCY_BUFFER,
+// and consistencyRampScale() all come from calc.js - reused directly (not
+// redeclared here) so this illustration can't silently drift from the real
+// formula consistencyScore() actually uses.
+
+// four made-up golfers (no real names) spaced across the strict/ramp/lenient
+// zones, just to show where a given spread lands on the curve.
+const RAMP_CHART_EXAMPLE_SPREADS = [1, 4, 9, 16];
+
+function buildConsistencyRampChart() {
+  const X0 = 50,
+    X1 = 430,
+    Y0 = 200,
+    Y1 = 20;
+  const XMIN = 0,
+    XMAX = 17;
+  const YMIN = 8.5,
+    YMAX = 18.5;
+  const xs = (spread) => X0 + ((spread - XMIN) / (XMAX - XMIN)) * (X1 - X0);
+  const ys = (scale) => Y0 + ((scale - YMIN) / (YMAX - YMIN)) * (Y1 - Y0);
+
+  const curvePoints = [0, CONSISTENCY_RAMP_START, CONSISTENCY_RAMP_END, XMAX]
+    .map((s) => `${xs(s).toFixed(1)},${ys(consistencyRampScale(s)).toFixed(1)}`)
+    .join(" L ");
+
+  const dots = RAMP_CHART_EXAMPLE_SPREADS.map((spread) => {
+    const scale = consistencyRampScale(spread);
+    return `<circle class="ramp-pt" cx="${xs(spread).toFixed(1)}" cy="${ys(scale).toFixed(1)}" r="4"><title>Hypothetical golfer - spread ${spread.toFixed(
+      1
+    )}, scale ${scale.toFixed(2)}</title></circle>`;
+  }).join("");
+
+  const yTicks = [9, 12, 15, 18].map((sc) => `<text class="ramp-tick" x="${X0 - 8}" y="${(ys(sc) + 3).toFixed(1)}" text-anchor="end">${sc}</text>`).join("");
+  const xTicks = [0, 2, 6, 12, 16].map((s) => `<text class="ramp-tick" x="${xs(s).toFixed(1)}" y="${Y0 + 14}" text-anchor="middle">${s}</text>`).join("");
+
+  const card = el("div", { className: "ramp-chart-card" });
+  card.appendChild(el("h4", { text: "Scale used vs. spread (strokes)" }));
+  card.innerHTML += `
+    <svg viewBox="0 0 460 220">
+      <rect x="${X0}" y="${Y1}" width="${xs(CONSISTENCY_RAMP_START) - X0}" height="${Y0 - Y1}" fill="var(--accent)" opacity="0.06" />
+      <rect x="${xs(CONSISTENCY_RAMP_END).toFixed(1)}" y="${Y1}" width="${(X1 - xs(CONSISTENCY_RAMP_END)).toFixed(1)}" height="${Y0 - Y1}" fill="var(--red)" opacity="0.06" />
+      <line class="ramp-grid" x1="${X0}" y1="${ys(9)}" x2="${X1}" y2="${ys(9)}" />
+      <line class="ramp-grid" x1="${X0}" y1="${ys(12)}" x2="${X1}" y2="${ys(12)}" />
+      <line class="ramp-grid" x1="${X0}" y1="${ys(15)}" x2="${X1}" y2="${ys(15)}" />
+      <line class="ramp-grid" x1="${X0}" y1="${ys(18)}" x2="${X1}" y2="${ys(18)}" />
+      <line class="ramp-guide" x1="${xs(CONSISTENCY_RAMP_START).toFixed(1)}" y1="${Y1}" x2="${xs(CONSISTENCY_RAMP_START).toFixed(1)}" y2="${Y0}" />
+      <line class="ramp-guide" x1="${xs(CONSISTENCY_RAMP_END).toFixed(1)}" y1="${Y1}" x2="${xs(CONSISTENCY_RAMP_END).toFixed(1)}" y2="${Y0}" />
+      <line class="ramp-axis" x1="${X0}" y1="${Y0}" x2="${X1}" y2="${Y0}" />
+      <line class="ramp-axis" x1="${X0}" y1="${Y1}" x2="${X0}" y2="${Y0}" />
+      ${yTicks}
+      ${xTicks}
+      <text class="ramp-zone-label" x="${((X0 + xs(CONSISTENCY_RAMP_START)) / 2).toFixed(1)}" y="${Y1 + 10}" text-anchor="middle">Strict</text>
+      <text class="ramp-zone-label" x="${((xs(CONSISTENCY_RAMP_START) + xs(CONSISTENCY_RAMP_END)) / 2).toFixed(1)}" y="${Y1 + 10}" text-anchor="middle">Ramp</text>
+      <text class="ramp-zone-label" x="${((xs(CONSISTENCY_RAMP_END) + X1) / 2).toFixed(1)}" y="${Y1 + 10}" text-anchor="middle">Lenient</text>
+      <path class="ramp-curve" d="M ${curvePoints}" />
+      ${dots}
+    </svg>
+  `;
+  card.appendChild(
+    el("pre", {
+      className: "ramp-formula",
+      text:
+        "spread  = abs(otherHandicap - best8Handicap)\n" +
+        "t       = clamp((spread - 2) / (12 - 2), 0, 1)\n" +
+        "scale   = 9 + (18 - 9) * t\n" +
+        "excess  = max(0, spread - 0.1)\n" +
+        "score   = clamp(100 * (1 - excess / scale), 0, 100)",
+    })
+  );
+
+  const exampleRows = RAMP_CHART_EXAMPLE_SPREADS.map((spread) => {
+    const scale = consistencyRampScale(spread);
+    const excess = Math.max(0, spread - CONSISTENCY_BUFFER);
+    const score = Math.max(0, Math.min(100, 100 * (1 - excess / scale)));
+    return { cells: [cell(fmt1(spread)), cell(fmt1(scale)), coloredCell(colorizeConsistency(score))] };
+  });
+  card.appendChild(buildTable("Hypothetical golfers along the curve", ["Spread (strokes)", "Scale used", "Consistency Score"], exampleRows));
+
+  return card;
+}
+
+function buildDefinitionsPanel() {
+  const container = el("div");
+  container.appendChild(
+    el("p", {
+      className: "definitions-empty",
+      text: "Hover any underlined column/row header throughout the app to see its definition once filled in below.",
+    })
+  );
+  for (const { section, terms } of DEFINITION_SECTIONS) {
+    const rows = terms.map((term) => {
+      const definition = definitionFor(term);
+      return { cells: [cell(term), cell(definition || "-", definition ? "" : "dash")] };
+    });
+    container.appendChild(buildTable(section, ["Metric", "Definition"], rows));
+    if (section === "Statistics") container.appendChild(buildConsistencyRampChart());
+  }
+  return container;
+}
+
 async function loadColumnPrefs() {
   const { ghinColumnPrefs } = await chrome.storage.local.get("ghinColumnPrefs");
   if (ghinColumnPrefs) {
@@ -553,8 +763,8 @@ function buildColumnMenu() {
 // once date order breaks up the ranking.
 let diffSortMode = "differential";
 
-function renderDiffSortControls() {
-  const row = el("div", { className: "diff-controls" });
+function renderDiffSortControls(holder) {
+  clearChildren(holder);
   const dateBtn = el("button", { text: "Sort by Date (highlight scoring rounds)" });
   dateBtn.disabled = diffSortMode === "date";
   dateBtn.addEventListener("click", () => {
@@ -567,9 +777,8 @@ function renderDiffSortControls() {
     diffSortMode = "differential";
     render();
   });
-  row.appendChild(dateBtn);
-  row.appendChild(diffBtn);
-  return row;
+  holder.appendChild(dateBtn);
+  holder.appendChild(diffBtn);
 }
 
 // mirrors tables.format_scoring_differentials, expanded with every field
@@ -592,7 +801,7 @@ function renderScoringDifferentials(container, spread) {
     }),
   }));
   const headers = columns.map((col) => (col.key ? { text: col.label, className: DETAIL_COL } : col.label));
-  container.appendChild(renderDiffSortControls());
+  renderDiffSortControls(document.getElementById("diff-sort-holder"));
   const table = buildTable(`Scoring Differentials (${spread.name})`, headers, rows);
   for (const [i, col] of columns.entries()) {
     if (col.key) table.querySelectorAll("thead th")[i]?.setAttribute("data-col", col.key);
@@ -1555,8 +1764,20 @@ document.getElementById("golfer-visibility-select").addEventListener("change", (
   render();
 });
 
+document.getElementById("refresh-ghin-btn").addEventListener("click", async () => {
+  const fetchStatus = document.getElementById("fetch-status");
+  const tabs = await chrome.tabs.query({ url: "https://*.ghin.com/*" });
+  if (!tabs.length) {
+    fetchStatus.textContent = "Open a ghin.com tab first, then try again.";
+    return;
+  }
+  await chrome.tabs.reload(tabs[0].id);
+  fetchStatus.textContent = "Refreshed the ghin.com tab.";
+});
+
 (async () => {
   await loadColumnPrefs();
   document.getElementById("col-menu-holder").appendChild(buildColumnMenu());
+  document.getElementById("panel-definitions").appendChild(buildDefinitionsPanel());
   render();
 })();

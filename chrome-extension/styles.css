@@ -100,6 +100,7 @@ main { padding: 10px 12px; }
 
 .diff-controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-bottom: 8px;
@@ -151,7 +152,7 @@ main { padding: 10px 12px; }
 .col-menu-body {
   position: absolute;
   top: calc(100% + 4px);
-  right: 0;
+  left: 0;
   z-index: 20;
   background: var(--head-bg);
   border: 1px solid var(--border);
@@ -244,6 +245,70 @@ th, td {
 th {
   background: var(--head-bg);
   font-weight: 600;
+}
+
+.has-tooltip {
+  text-decoration: underline dotted var(--dim);
+  cursor: help;
+}
+
+.fast-tooltip {
+  position: fixed;
+  display: none;
+  background: var(--head-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  max-width: 260px;
+  white-space: normal;
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.definitions-empty {
+  color: var(--dim);
+}
+
+.ramp-chart-card {
+  background: var(--head-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px 8px;
+  margin: 0 0 16px;
+}
+
+.ramp-chart-card h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.ramp-chart-card svg { display: block; width: 100%; height: auto; }
+
+.ramp-axis { stroke: var(--border); stroke-width: 1; }
+.ramp-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.8; }
+.ramp-guide { stroke: var(--dim); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; }
+.ramp-tick { fill: var(--dim); font-size: 9px; }
+.ramp-zone-label { fill: var(--dim); font-size: 8.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.ramp-curve { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ramp-pt { fill: var(--accent); stroke: var(--head-bg); stroke-width: 1.5; }
+
+.ramp-formula {
+  margin: 6px 0 0;
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg);
+  white-space: pre-wrap;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
 }
 
 tr.section-end td {

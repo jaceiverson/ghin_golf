@@ -45,6 +45,43 @@ function differentialDistribution(differentials, handicap) {
   return aboveHandicap / 7;
 }
 
+// Consistency score used to be `(best8 / other) * 100` - a ratio that only
+// makes sense for positive handicaps: it caps at 100% because best8 <= other
+// for anyone with a normal handicap, but flips and blows past 100% for plus
+// golfers (both operands negative), and is wildly unstable near a 0 handicap
+// since it's dividing by something close to zero. This instead scores the
+// absolute stroke spread between the two handicaps directly, so it works
+// identically regardless of sign or magnitude - a -2 (plus) golfer and a 20
+// golfer with the same spread get the same score.
+//
+// CONSISTENCY_BUFFER strokes of spread are free (rounding/GHIN's own 1-decimal
+// noise, not real inconsistency) - anything beyond that eats into the score.
+// The scale it's divided by isn't fixed: it ramps from CONSISTENCY_SCALE_MIN
+// (strict - a stroke of excess spread costs more) up to CONSISTENCY_SCALE_MAX
+// (lenient - costs less) as the spread itself grows from CONSISTENCY_RAMP_START
+// to CONSISTENCY_RAMP_END. Deliberately keyed on spread, not on the golfer's
+// handicap - ramping by handicap instead would judge a low-handicap golfer's
+// one bad stretch just as harshly as always, and over-reward a high-handicap
+// golfer's tight stretch beyond what the tightness itself already earns. See
+// documentation/CONSISTENCY_SCORE_DESIGN.md for the full reasoning and data.
+const CONSISTENCY_BUFFER = 0.1;
+const CONSISTENCY_RAMP_START = 2;
+const CONSISTENCY_RAMP_END = 12;
+const CONSISTENCY_SCALE_MIN = 9;
+const CONSISTENCY_SCALE_MAX = 18;
+
+function consistencyRampScale(spread) {
+  const t = Math.max(0, Math.min(1, (spread - CONSISTENCY_RAMP_START) / (CONSISTENCY_RAMP_END - CONSISTENCY_RAMP_START)));
+  return CONSISTENCY_SCALE_MIN + (CONSISTENCY_SCALE_MAX - CONSISTENCY_SCALE_MIN) * t;
+}
+
+function consistencyScore(best8Handicap, otherHandicap) {
+  const spread = Math.abs(otherHandicap - best8Handicap);
+  const excess = Math.max(0, spread - CONSISTENCY_BUFFER);
+  const scale = consistencyRampScale(spread);
+  return Math.max(0, Math.min(100, 100 * (1 - excess / scale)));
+}
+
 function orderedScores(scoresById) {
   return Object.values(scoresById).sort((a, b) => {
     const dateDiff = new Date(b.played_at) - new Date(a.played_at);
@@ -265,8 +302,8 @@ function computeHandicapSpread(golfer) {
     highestScore,
     lowestScore,
     averageScore,
-    consistencyScoreBest8All20: (handicap / all20Handicap) * 100,
-    consistencyScoreBest8Worst12: (handicap / worst12Handicap) * 100,
+    consistencyScoreBest8All20: consistencyScore(handicap, all20Handicap),
+    consistencyScoreBest8Worst12: consistencyScore(handicap, worst12Handicap),
     hotStreakCurrent,
     hotStreakLongest,
     hotStreakBestRounds,

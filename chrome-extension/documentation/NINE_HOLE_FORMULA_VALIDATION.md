@@ -1,11 +1,11 @@
 # 9-hole scaling formula validation
 
 GHIN doesn't publicly document how a 9-hole differential gets scaled up to an
-18-hole equivalent (`scaled_up_differential` in the raw score data). The
-user-supplied formula below was checked against every 9-hole round captured
-for golfer 1104482, first from the last-20-scores capture
-(`outputs/1104482/scores.json`), then re-checked against a full CSV export
-covering the golfer's entire history back to 2016.
+18-hole equivalent (`scaled_up_differential` in the raw score data). I checked
+the formula below against every 9-hole round I've captured for golfer 1104482
+(that's me), first from the last-20-scores capture
+(`outputs/1104482/scores.json`), then re-checked it against a full CSV export
+covering my entire history back to 2016.
 
 ## Formula
 
@@ -15,7 +15,7 @@ Expected 2nd-9 differential = 0.52 × Handicap Index + 1.2
 Scaled 18-hole differential = 9-hole differential + Expected 2nd-9 differential
 ```
 
-`Handicap Index` is the golfer's `handicap_index` at the moment the round posted.
+`Handicap Index` is my `handicap_index` at the moment the round posted.
 
 ## Method
 
@@ -30,16 +30,15 @@ matches throughout May–August).
 
 ## Round 2: full history export (43 nine-hole rounds, 2024-04-19 → 2026-08-10)
 
-The user exported their complete captured history via the CSV download. A
-striking finding: **there is no 9-hole round anywhere in the full history
-with a `scaled_up_differential`/`handicap_index` before 2024-04-19** — every
-round before that date is 18-hole. This lines up with the user's recollection
-that GHIN changed something about 9-hole handling at the start of 2024. From
-this data alone it's not possible to tell whether that's because GHIN's
-system didn't compute/expose this before, or the golfer simply didn't play
-9-hole rounds earlier — either way, **there are zero data points available
-to test a "pre-2024" version of this formula against**. Validation below is
-necessarily scoped to 2024-04-19 onward.
+I exported my complete captured history via the CSV download. A striking
+finding: **there is no 9-hole round anywhere in the full history with a
+`scaled_up_differential`/`handicap_index` before 2024-04-19** — every round
+before that date is 18-hole. This lines up with my recollection that GHIN
+changed something about 9-hole handling at the start of 2024. From this data
+alone I can't tell whether that's because GHIN's system didn't compute/expose
+this before, or I just didn't play 9-hole rounds earlier — either way, **there
+are zero data points available to test a "pre-2024" version of this formula
+against**. Validation below is necessarily scoped to 2024-04-19 onward.
 
 | Date played | Base differential | Handicap Index | Predicted | Actual (GHIN) | Error |
 |---|---|---|---|---|---|
@@ -99,22 +98,21 @@ the formula is consistently exact followed by a stretch where it consistently
 drifts, which is what you'd expect to see if GHIN had changed the formula
 partway through this window. The two largest errors (2026-05-01 at +0.5,
 2026-06-27 at +0.4) sit in the middle of otherwise-exact runs, not at a
-boundary. This still reads as rounding noise at some intermediate step
-GHIN's own calculation handles differently (e.g. rounding the base
-differential before adding the expected term, rather than after), not a
-formula version change *within* the post-2024-04-19 window.
+boundary. I'm reading this as rounding noise at some intermediate step GHIN's
+own calculation handles differently (e.g. rounding the base differential
+before adding the expected term, rather than after), not a formula version
+change *within* the post-2024-04-19 window.
 
 ## Conclusion
 
 43 rounds spanning 2.3 years, 0.063 average error, more than half exact —
 this is a real formula, not coincidence, for the period GHIN actually has
-9-hole scaling data available for this golfer (2024-04-19 onward). Still
+9-hole scaling data available for me (2024-04-19 onward). Still
 **speculative** rather than guaranteed, since GHIN doesn't document it and
-the fit isn't bit-for-bit exact. The pre-2024 formula (if it differs, as the
-user recalls) can't be validated at all from this golfer's data — there
-simply are no 9-hole rounds with scaling data captured before 2024-04-19 to
-check it against.
+the fit isn't bit-for-bit exact. The pre-2024 formula (if it differs, like I
+recall) can't be validated at all from my data — there simply are no 9-hole
+rounds with scaling data captured before 2024-04-19 to check it against.
 
-Only one golfer's data was available to validate against; if this extension
-is ever used at scale, re-running this check against more golfers' 9-hole
+I only had my own data available to validate against; if this extension is
+ever used at scale, re-running this check against more golfers' 9-hole
 history would be worth doing before trusting the error bound generalizes.
